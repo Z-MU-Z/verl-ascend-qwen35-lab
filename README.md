@@ -1,3 +1,16 @@
+## Ascend Qwen3.5 Lab Fork
+
+This fork is prepared for Huawei Ascend NPU bring-up of `Qwen3.5 + FSDP + GRPO`.
+It freezes the upstream baseline at commit `4045d67063052dcb800c918c107b8d5a87046006`, which is the merge commit for [PR #5682](https://github.com/verl-project/verl/pull/5682).
+
+Lab-specific entry points:
+
+- Runbook: `docs/ascend_qwen35_lab/RUNBOOK.md`
+- Known issues with source links: `docs/ascend_qwen35_lab/KNOWN_ISSUES.md`
+- Test TODO tracker: `docs/ascend_qwen35_lab/TODO.md`
+- One-click environment bootstrap: `scripts/ascend/bootstrap_qwen35_npu_env.sh`
+- Safe first-run script: `scripts/ascend/run_qwen35_27b_npu_smoke.sh`
+
 <div align="center">
  👋 Hi, everyone!
     verl is a RL training library initiated by <b>ByteDance Seed team</b> and maintained by the verl community.
