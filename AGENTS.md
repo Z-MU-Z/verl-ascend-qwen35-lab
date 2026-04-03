@@ -38,3 +38,20 @@ For any repo change that should be used on the remote servers:
 - Shared model shortcut: `/home/zmz/verl/models`
 
 When later agents prepare code, models, or datasets for the remote machines, they should assume the local repository remains the canonical source and remote machines should sync from git after local changes are pushed.
+
+## Qwen3.5 Ascend Baseline
+
+- For Qwen3.5 Ascend bring-up work, use upstream `verl` PR `#5682` as the primary baseline.
+- Prefer the local lab docs over generic Ascend quickstart guidance when they conflict:
+  - `docs/ascend_qwen35_lab/HANDOFF_20260403.md`
+  - `docs/ascend_qwen35_lab/SHARED_ENV_TODO.md`
+  - `docs/ascend_qwen35_lab/KNOWN_ISSUES.md`
+  - `docs/ascend_qwen35_lab/RUNBOOK.md`
+- Treat the PR-reported pinned stack as the target for first validation:
+  - `transformers@cc7ab9be`
+  - `vllm==0.18.0`
+  - `vllm-ascend@54879467`
+  - `torch==2.10`
+  - `triton==3.6`
+- Important current blocker:
+  - public Ascend `torch_npu` packages currently observed on the cluster side only reach `2.8.x`, so a `torch 2.10`-compatible `torch_npu` source, wheel bundle, or prebuilt image may be required from Huawei before the final PR stack can be reproduced.
