@@ -29,6 +29,7 @@ Build a two-host Huawei Ascend environment where:
   - `tensordict`
   - `triton_ascend`
 - Shared venv has been created at `/shared/envs/qwen35` and is visible from both hosts.
+- The shared environment path `/shared/envs/qwen35` has now been rebuilt on top of Python `3.10.20` via Miniforge under `/shared/tools/miniforge3`.
 - The shared wrapper script `scripts/ascend/env.qwen35_shared.sh` resolves to the same shared Python path on both hosts:
   - `/shared/envs/qwen35/bin/python`
 - Current likely training communication NIC on both hosts is `enp61s0f0`.
@@ -47,6 +48,9 @@ Build a two-host Huawei Ascend environment where:
 - Shell quoting for remote `awk` one-liners is easy to break; prefer simpler commands when probing host IP and interface state over SSH.
 - The default pip source can stall even on small bootstrap steps like upgrading `pip/setuptools/wheel`. Prefer setting `PIP_INDEX_URL` explicitly for this lab, and be ready to skip build-tool upgrades during bootstrap if the environment already has a working pip.
 - The current shared venv was first created from system `python3.9.9`, but local `pyproject.toml` requires `Python >=3.10`. That means `pip install -e .` will always fail until the shared interpreter itself is rebuilt on top of Python 3.10+.
+- Remote access from the cluster to `github.com` can time out during `pip install git+...`. For pinned source installs like `transformers@cc7ab9be` and `vllm-ascend@54879467`, it is safer to pre-download tarballs locally and upload them into `/shared/dist`.
+- The PR #5682 discussion says the working matrix uses `torch 2.10`, but the public Ascend `torch_npu` index currently exposed only `2.8.0.post1`, `2.7.1.post1`, `2.6.0.post4`, and `2.1.0.post18`. Installing `torch 2.10` together with public `torch_npu 2.8.x` breaks import with an undefined symbol from `libtorch_npu.so`.
+- Because of that public package gap, the shared env is currently restored to a coherent fallback state (`Python 3.10.20` + `torch 2.8.0` + `torch_npu 2.8.0.post2`) for continued debugging, but the full PR matrix is still blocked on a `torch 2.10`-compatible `torch_npu` source.
 
 ## Source Of Truth
 
@@ -86,6 +90,8 @@ Build a two-host Huawei Ascend environment where:
   - `transformers@cc7ab9be`
   - `vllm==0.18.0`
   - `vllm-ascend@54879467`
+  - `torch==2.10`
+  - `triton==3.6`
   - `ulysses_sequence_parallel_size=1`
   - `use_remove_padding=False` for first bring-up
   - explicit `Qwen3_5DecoderLayer` wrap policy
@@ -131,6 +137,7 @@ Build a two-host Huawei Ascend environment where:
   - pinned `transformers`
   - pinned `vllm`
   - pinned `vllm-ascend`
+- [ ] Do not treat the current `torch 2.8.0` fallback as the final validation stack. It is only the last known importable state while the `torch 2.10` + `torch_npu` source issue remains unresolved.
 - [ ] Verify the shared venv from both machines with:
   - `python scripts/ascend/check_qwen35_npu_env.py`
 
