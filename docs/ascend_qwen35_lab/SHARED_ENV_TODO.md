@@ -46,6 +46,7 @@ Build a two-host Huawei Ascend environment where:
 - Shared NFS worktrees can briefly show stale `D` states or miss just-created files until metadata catches up. Re-check before assuming a real deletion.
 - Shell quoting for remote `awk` one-liners is easy to break; prefer simpler commands when probing host IP and interface state over SSH.
 - The default pip source can stall even on small bootstrap steps like upgrading `pip/setuptools/wheel`. Prefer setting `PIP_INDEX_URL` explicitly for this lab, and be ready to skip build-tool upgrades during bootstrap if the environment already has a working pip.
+- The current shared venv was first created from system `python3.9.9`, but local `pyproject.toml` requires `Python >=3.10`. That means `pip install -e .` will always fail until the shared interpreter itself is rebuilt on top of Python 3.10+.
 
 ## Source Of Truth
 
@@ -102,6 +103,7 @@ Build a two-host Huawei Ascend environment where:
 - [ ] Decide whether both hosts will use:
   - the same system Python
   - or the same host-local Python bootstrap path before entering the shared venv
+- [ ] Because local `verl` requires `Python >=3.10`, do not continue with a shared `3.9` virtualenv. First provision one shared Python `3.10+` interpreter path that both hosts can enter.
 - [ ] Do not proceed until both machines have compatible host-local NPU prerequisites.
 
 ### Phase 3: Standardize Shared Paths
@@ -121,6 +123,7 @@ Build a two-host Huawei Ascend environment where:
 ### Phase 4: Build The Shared Python Environment
 
 - [ ] Create the shared virtualenv at `/shared/envs/qwen35`
+  - It must be built from Python `3.10+`, not the host default `3.9.9`.
 - [ ] Activate it from both machines and confirm `python -V` and `which python` are identical
 - [ ] Install user-space dependencies into the shared venv:
   - `requirements-npu.txt`
