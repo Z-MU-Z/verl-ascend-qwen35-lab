@@ -28,6 +28,13 @@ Build a two-host Huawei Ascend environment where:
   - `ray`
   - `tensordict`
   - `triton_ascend`
+- Shared venv has been created at `/shared/envs/qwen35` and is visible from both hosts.
+- The shared wrapper script `scripts/ascend/env.qwen35_shared.sh` resolves to the same shared Python path on both hosts:
+  - `/shared/envs/qwen35/bin/python`
+- Current likely training communication NIC on both hosts is `enp61s0f0`.
+- Current host IPs on that NIC are:
+  - `172.20.117.36`
+  - `172.20.117.37`
 
 ## Pitfalls Already Seen
 
@@ -35,6 +42,10 @@ Build a two-host Huawei Ascend environment where:
 - The generic Ascend quickstart package versions differ from the PR #5682 bring-up pins, so this lab must prefer the PR-specific matrix first.
 - A shared virtualenv under `/shared` is feasible because both hosts use the same system Python path, but that does not replace host-local `CANN` and `torch_npu`.
 - `/shared` is shared for user-space assets, but on host `172.20.117.37` it is still backed by local disk. Capacity and ownership must still be checked before long runs.
+- Pulling into the shared repo can be blocked by untracked files left behind by earlier `rsync`-based syncs. Compare file hashes first, then remove only the exact conflicting files before `git pull`.
+- Shared NFS worktrees can briefly show stale `D` states or miss just-created files until metadata catches up. Re-check before assuming a real deletion.
+- Shell quoting for remote `awk` one-liners is easy to break; prefer simpler commands when probing host IP and interface state over SSH.
+- The default pip source can stall even on small bootstrap steps like upgrading `pip/setuptools/wheel`. Prefer setting `PIP_INDEX_URL` explicitly for this lab, and be ready to skip build-tool upgrades during bootstrap if the environment already has a working pip.
 
 ## Source Of Truth
 
