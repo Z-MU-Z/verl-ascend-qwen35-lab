@@ -10,18 +10,130 @@ Baseline frozen in this repo:
 - Frozen commit: `4045d67063052dcb800c918c107b8d5a87046006`
 - Why this commit: it is the merge commit for the Qwen3.5 FSDP GRPO support PR
 
-## Recommended first-run path
+## Current status
 
-1. Prepare the cluster image with `CANN` and `torch_npu`.
-2. Activate the Python environment you actually want to use on the cluster.
-3. Run:
+The lab currently has two distinct states:
+
+- final target state:
+  - `transformers@cc7ab9be`
+  - `vllm==0.18.0`
+  - `vllm-ascend@54879467`
+  - `torch==2.10`
+  - `triton==3.6`
+- current fallback state:
+  - shared env under `/shared/envs/qwen35`
+  - `Python 3.10.20`
+  - `torch 2.8.0`
+  - `torch_npu 2.8.0.post2`
+
+Important:
+
+- the fallback state is only the last known importable debug environment
+- it is not the PR `#5682` validation matrix
+- the real blocker is still the missing `torch 2.10`-compatible `torch_npu` package, wheel bundle, or prebuilt image for this cluster
+
+## Current NPU reference baseline
+
+For current Ascend bring-up, treat the public `2.8.x` line as the usable reference baseline:
+
+- `CANN 8.5.0.B160`
+- `torch_npu 2.8.0`
+- `transformers@8e26f7e`
+
+That public progress report came from issue `#5441`, which is consistent with the cluster behavior already seen in this lab: the public NPU line is still centered around `2.8.x`, while the PR `#5682` `2.10` matrix remains a target state rather than a proven public drop-in baseline.
+
+## Recommended bring-up path right now
+
+1. On each host, prepare the host-local Ascend runtime first:
 
 ```bash
-source scripts/ascend/env.qwen35_npu.sh
-bash scripts/ascend/bootstrap_qwen35_npu_env.sh
+cp scripts/ascend/env.qwen35_host.sh.example scripts/ascend/env.qwen35_host.sh
+# edit scripts/ascend/env.qwen35_host.sh for the current host
+source scripts/ascend/env.qwen35_host.sh
 ```
 
-4. Export the model and dataset locations:
+2. Activate the shared lab environment:
+
+```bash
+source scripts/ascend/env.qwen35_shared.sh
+python scripts/ascend/check_qwen35_npu_env.py
+```
+
+The shared activation script should source the host Ascend runtime automatically when those `set_env.sh` files exist. If imports still fail, confirm both `/usr/local/Ascend/ascend-toolkit/set_env.sh` and `/usr/local/Ascend/nnal/atb/set_env.sh` are present and readable on that host.
+
+3. Re-run the shared-env import check on both `172.20.117.36` and `172.20.117.37` and record the output before changing anything else.
+
+4. Stop here if the cluster still only exposes public `torch_npu 2.8.x`.
+
+At that point the next step is not another blind reinstall and not a default smoke run. The next step is to obtain one of:
+
+- a `torch 2.10`-compatible `torch_npu` wheel
+- an official image with the matching stack already built
+- a Huawei-provided Python environment that reproduces the PR matrix
+
+5. Only after that missing runtime piece exists, rebuild the shared env and then install the pinned user-space stack.
+
+If the user explicitly wants to continue fallback-line debugging before that missing runtime piece exists, prepare the extracted `vllm-ascend` source locally first and then sync it through git-backed repo changes:
+
+```bash
+python3 scripts/ascend/prepare_vllm_ascend_source.py \
+  --source-dir /path/to/extracted/vllm-ascend-54879467-src \
+  --helper-bin-dir /tmp/vllm-ascend-helper-bin \
+  --helper-python3 /usr/bin/python3.9 \
+  --helper-llvm-objdump /usr/local/Ascend/cann-8.5.0/tools/ccec_compiler/bin/llvm-objdump
+```
+
+Use `--allow-torch-fallback-debug` only for explicit fallback debugging. Do not treat that switch as validation of the final target matrix.
+
+## Fallback debug retry template
+
+When the user explicitly wants one more fallback-line diagnostic pass on `.36`, keep the repo as the source of truth and use a repeatable command sequence instead of re-editing `/tmp` by hand:
+
+```bash
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
+source /usr/local/Ascend/nnal/atb/set_env.sh
+source /shared/tools/miniforge3/etc/profile.d/conda.sh
+conda activate /shared/envs/qwen35
+
+rm -rf /tmp/vllm-ascend-54879467-src /tmp/vllm-ascend-helper-bin
+mkdir -p /tmp/vllm-ascend-54879467-src
+tar -xzf /shared/dist/vllm-ascend-54879467.tar.gz -C /tmp/vllm-ascend-54879467-src --strip-components=1
+
+python3 scripts/ascend/prepare_vllm_ascend_source.py \
+  --source-dir /tmp/vllm-ascend-54879467-src \
+  --helper-bin-dir /tmp/vllm-ascend-helper-bin \
+  --helper-python3 /usr/bin/python3.9 \
+  --helper-llvm-objdump /usr/local/Ascend/cann-8.5.0/tools/ccec_compiler/bin/llvm-objdump
+
+export PATH=/tmp/vllm-ascend-helper-bin:$PATH
+/shared/envs/qwen35/bin/python -m pip install -v --no-build-isolation --no-deps /tmp/vllm-ascend-54879467-src
+```
+
+If the goal is only to probe how far the fallback `torch 2.8.x` line can go, rerun the prepare step with `--allow-torch-fallback-debug`. Keep that as a diagnostic-only branch, not a final validation path.
+
+## When to use the bootstrap script
+
+Use `scripts/ascend/bootstrap_qwen35_npu_env.sh` only after both of these are true:
+
+- the base runtime already has a compatible `torch` + `torch_npu` pair
+- the host can either reach the required sources, or you have mirrored the pinned packages locally
+
+Remember:
+
+- the bootstrap script does not install `CANN`, `torch`, or `torch_npu`
+- the cluster has already shown unreliable GitHub access for `pip install git+...`
+- for this lab, local tarballs under `/shared/dist` are safer than assuming remote GitHub access
+- `scripts/ascend/prepare_vllm_ascend_source.py` is the local reproducible way to carry the currently known `vllm-ascend` source patches forward; do not rely on ad-hoc edits under `/tmp` as the source of truth
+
+## Smoke test prerequisites
+
+Do not start the smoke script until:
+
+- both hosts can import `torch`, `torch_npu`, and `transformers` from the intended shared env
+- the env is no longer in the fallback `torch 2.8` debug-only state
+- model and dataset paths are exported explicitly
+
+Example exports:
 
 ```bash
 export MODEL_PATH=/path/to/Qwen3.5-27B
@@ -29,7 +141,7 @@ export TRAIN_FILE=/path/to/train.parquet
 export TEST_FILE=/path/to/test.parquet
 ```
 
-5. Start the safer smoke test:
+Then start the safer smoke test:
 
 ```bash
 bash scripts/ascend/run_qwen35_27b_npu_smoke.sh
@@ -49,11 +161,15 @@ These are not final performance settings. They are meant to answer one question 
 
 ## Suggested test sequence
 
-1. Environment report from `scripts/ascend/check_qwen35_npu_env.py`
-2. Single-node smoke run with 27B
-3. Full first epoch with logs collected
-4. Only after that, tune memory and throughput
-5. Only after that, evaluate precision alignment and scaling
+1. Reconfirm the fallback shared env is still importable on both hosts.
+2. Resolve the missing `torch 2.10`-compatible `torch_npu` source.
+3. Rebuild `/shared/envs/qwen35` on the final PR matrix.
+4. Run `scripts/ascend/check_qwen35_npu_env.py` again from both hosts.
+5. Run a single-node smoke pass first.
+6. Prefer a smaller Qwen3.5 checkpoint for a first launch sanity check if model download or memory pressure is still uncertain.
+7. Run the 27B smoke script once the environment itself is stable.
+8. Only after that, tune memory and throughput.
+9. Only after that, evaluate precision alignment and multi-node scaling.
 
 ## Results logging
 

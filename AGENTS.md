@@ -40,6 +40,7 @@ For any repo change that should be used on the remote servers:
 When later agents prepare code, models, or datasets for the remote machines, they should assume the local repository remains the canonical source and remote machines should sync from git after local changes are pushed.
 
 ## Qwen3.5 Ascend Baseline
+https://github.com/verl-project/verl/pull/5682
 
 - For Qwen3.5 Ascend bring-up work, use upstream `verl` PR `#5682` as the primary baseline.
 - Prefer the local lab docs over generic Ascend quickstart guidance when they conflict:

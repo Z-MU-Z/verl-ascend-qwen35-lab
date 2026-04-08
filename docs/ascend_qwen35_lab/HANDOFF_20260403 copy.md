@@ -28,7 +28,6 @@ Primary goal:
   - `scripts/ascend/env.qwen35_shared.sh`
   - `scripts/ascend/env.qwen35_host.sh.example`
   - `scripts/ascend/check_qwen35_npu_env.py`
-  - `scripts/ascend/prepare_vllm_ascend_source.py`
 
 ## Cluster Layout
 
@@ -222,100 +221,10 @@ Relevant repo changes already landed:
   - added `BOOTSTRAP_UPGRADE_BUILD_TOOLS=0` support
 - `scripts/ascend/env.qwen35_shared.sh`
   - shared env activation and shared paths
-  - now sources Ascend host runtime env scripts when present so `torch_npu` and `vllm` can resolve the required shared libraries
 - `scripts/ascend/env.qwen35_host.sh.example`
   - per-host network/env template
 - `docs/ascend_qwen35_lab/SHARED_ENV_TODO.md`
   - updated with blockers, pitfalls, and recovery notes
-
-## Progress Snapshot (2026-04-07)
-
-This is the latest concise checkpoint before the next remote attempt:
-
-- SSH access to `.36` is back and working again
-- `/shared/dist` on `.36` still contains:
-  - `transformers-cc7ab9be.tar.gz`
-  - `vllm-0.18.0-cp38-abi3-manylinux_2_31_aarch64.whl`
-  - `vllm-ascend-54879467.tar.gz`
-- `/shared/envs/qwen35` on `.36` now has these extra packages installed:
-  - `vllm 0.18.0`
-  - `xgrammar 0.1.33`
-  - `setuptools-scm 10.0.5`
-  - `vcs-versioning 1.1.1`
-- After sourcing:
-  - `/usr/local/Ascend/ascend-toolkit/set_env.sh`
-  - `/usr/local/Ascend/nnal/atb/set_env.sh`
-  the following import check succeeds on `.36`:
-  - `torch 2.8.0+cpu`
-  - `torch_npu 2.8.0.post2`
-  - `transformers 5.3.0.dev0`
-  - `vllm 0.18.0`
-- `vllm-ascend` is still not installed
-- Root cause of the current install failure:
-  - `/shared/dist/vllm-ascend-54879467.tar.gz` is not self-contained
-  - it is missing `csrc/third_party/catlass`
-  - `csrc/build_aclnn.sh` falls back to `git submodule update --init --recursive`
-  - that fallback fails in the tarball build path
-
-Follow-up progress on `2026-04-07`:
-
-- the missing `catlass` submodule content was recovered successfully on `.36`
-- the real active blocker moved forward from "missing source bundle" to "build/runtime compatibility mismatch"
-- evidence collected on `.36`:
-  - current shared runtime remains:
-    - `Python 3.10.20`
-    - `torch 2.8.0`
-    - `torch_npu 2.8.0.post2`
-    - `vllm 0.18.0`
-  - current host CANN/ATB line is still `8.5.0.B160`
-  - `vllm-ascend@54879467` source hardcodes include roots such as:
-    - `include/experiment/platform`
-    - `include/experiment/slog`
-  - current `.36` headers actually live at:
-    - `include/aclnn/opdev/platform.h`
-    - `include/toolchain/slog.h`
-- temporary source-only patch result:
-  - replacing those include roots in the extracted `/tmp/vllm-ascend-54879467-src` tree allows:
-    - `bash csrc/build_aclnn.sh /tmp/vllm-ascend-54879467-src ascend910b4`
-    - to complete successfully on `.36`
-  - the earlier "standalone succeeds, pip fails" differential is now much narrower:
-    - the custom-op stage can also succeed from the shared env if helper scripts resolve `python3` from system `/usr/bin/python3.9`
-    - leaving conda `python3.10` first in `PATH` still causes the custom-op stage to fail
-  - once system `python3` is forced first in `PATH`, the pip build moves past the old custom-op failure and exposes the next blockers:
-    - `setup.py` currently hardcodes `python3 -m pip show torch-npu`, which makes `TORCH_NPU_PATH` resolve incorrectly to `/torch_npu` under that workaround
-    - after a temporary source-only fix to use the active interpreter instead, the main CMake configure step reaches a new hard gate:
-      - `Expected PyTorch version 2.9.0, but found 2.8.0+cpu`
-  - after temporarily relaxing that version gate only to probe deeper, the main `vllm_ascend_C` build advances much further and then fails with:
-    - `FileNotFoundError: [Errno 2] No such file or directory: 'llvm-objdump'`
-    - raised from `/usr/local/Ascend/cann-8.5.0/.../extract_host_stub.py`
-  - important nuance:
-    - `.36` does already have `llvm-objdump` at both:
-      - `/usr/local/Ascend/cann-8.5.0/aarch64-linux/ccec_compiler/bin/llvm-objdump`
-      - `/usr/local/Ascend/cann-8.5.0/tools/ccec_compiler/bin/llvm-objdump`
-    - and the normal Ascend env script also exports `.../tools/ccec_compiler/bin` into `PATH`
-  - current interpretation:
-    - the old "which Python did CMake find?" explanation was incomplete
-    - the more accurate chain is:
-      1. helper-script `python3` resolution affects whether `build_aclnn` succeeds
-      2. `setup.py` also incorrectly assumes bare `python3` when locating `torch_npu`
-      3. even after both are worked around, the fallback `torch 2.8` line still hits the upstream `torch 2.9.0` gate
-      4. after bypassing that gate for diagnosis only, the build still falls over later on a missing `llvm-objdump` lookup
-  - local repo follow-up:
-    - the previously remote-only source edits are now captured in `scripts/ascend/prepare_vllm_ascend_source.py`
-    - that helper can patch an extracted `vllm-ascend` tree for:
-      - the CANN include-path mismatch
-      - the `setup.py` `torch-npu` lookup issue
-      - optional fallback `torch` gate relaxation under an explicit debug flag
-      - optional helper-bin shims for `python3` and `llvm-objdump`
-
-Current working goal:
-
-1. convert the proven remote-only source findings into a clean local patch or overlay plan
-2. isolate why the later host-stub build stage still loses `llvm-objdump`
-3. decide whether continuing on the fallback `torch 2.8` line is worth it, given the upstream `torch 2.9.0` gate and repo docs targeting `torch 2.10`
-4. only after that, build and install `vllm-ascend` into `/shared/envs/qwen35` on `.36`
-5. rerun import checks
-6. only then try the minimal vLLM-based smoke
 
 ## High-Value Next Steps
 
@@ -327,19 +236,15 @@ Recommended next-agent order:
 4. Resolve the matrix gap first:
    - either find a `torch 2.10`-compatible `torch_npu`
    - or get an official cluster image / wheel bundle from Huawei
-5. If the user explicitly wants more fallback-line debugging before that delivery arrives, preserve these findings:
-   - `build_aclnn` is sensitive to which `python3` helper scripts resolve from `PATH`
-   - `setup.py` should not use bare `python3` when probing `torch-npu`
-   - later host-stub generation may also need an explicit `llvm-objdump` path or env export
-6. Once the missing stack piece exists, rebuild `/shared/envs/qwen35` cleanly from scratch
-7. Then install in controlled order:
+5. Once that missing piece exists, rebuild `/shared/envs/qwen35` cleanly from scratch
+6. Then install in controlled order:
    - base `torch` + matching `torch_npu`
    - repo editable install
    - pinned `transformers` from local tarball
    - `tensorboard`
    - `vllm==0.18.0`
    - `vllm-ascend@54879467`
-8. Then run:
+7. Then run:
    - `scripts/ascend/check_qwen35_npu_env.py`
    - single-node smoke before any multi-node work
 
