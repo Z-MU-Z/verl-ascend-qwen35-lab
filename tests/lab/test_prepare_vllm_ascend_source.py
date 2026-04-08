@@ -51,6 +51,22 @@ include_directories(/usr/local/Ascend/include/experiment/slog)
         (root / rel_path).write_text(old_include_text + "\n")
 
 
+def _write_partial_include_tree(root: Path) -> None:
+    _write_fake_vllm_ascend_tree(root)
+    (root / "csrc/cmake/config.cmake").write_text(
+        "include_directories(/usr/local/Ascend/include/experiment/platform)\n"
+    )
+    (root / "csrc/cmake/intf_pub.cmake").write_text(
+        "include_directories(/usr/local/Ascend/include/experiment/platform)\n"
+    )
+    (root / "csrc/moe_grouped_matmul/op_host/CMakeLists.txt").write_text(
+        "include_directories(/usr/local/Ascend/include/experiment/platform)\n"
+    )
+    (root / "csrc/utils/CMakeLists.txt").write_text(
+        "include_directories(/usr/local/Ascend/include/experiment/slog)\n"
+    )
+
+
 def _run_prepare(source_dir: Path, *extra_args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
@@ -121,6 +137,36 @@ def test_prepare_script_fails_loudly_when_expected_snippet_is_missing(tmp_path: 
 
     assert result.returncode != 0
     assert "Expected snippet not found" in result.stderr
+
+
+def test_prepare_script_handles_partial_include_replacements(tmp_path: Path) -> None:
+    source_dir = tmp_path / "vllm-ascend-src"
+    _write_partial_include_tree(source_dir)
+
+    result = _run_prepare(source_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert "Patched 5 file(s)." in result.stdout
+
+    assert "include/aclnn/opdev" in (source_dir / "csrc/cmake/config.cmake").read_text()
+    assert "include/aclnn/opdev" in (source_dir / "csrc/cmake/intf_pub.cmake").read_text()
+    assert "include/aclnn/opdev" in (source_dir / "csrc/moe_grouped_matmul/op_host/CMakeLists.txt").read_text()
+    assert "include/toolchain" in (source_dir / "csrc/utils/CMakeLists.txt").read_text()
+
+
+def test_prepare_script_can_copy_catlass_cache_into_empty_target(tmp_path: Path) -> None:
+    source_dir = tmp_path / "vllm-ascend-src"
+    catlass_src = tmp_path / "catlass-src"
+    target_catlass = source_dir / "csrc/third_party/catlass"
+    _write_fake_vllm_ascend_tree(source_dir)
+    target_catlass.mkdir(parents=True)
+    (catlass_src / "include").mkdir(parents=True)
+    (catlass_src / "include/catlass.hpp").write_text("// catlass\n")
+
+    result = _run_prepare(source_dir, "--catlass-source-dir", str(catlass_src))
+
+    assert result.returncode == 0, result.stderr
+    assert (target_catlass / "include/catlass.hpp").read_text() == "// catlass\n"
 
 
 def test_prepare_script_can_create_helper_bin_shims_for_remote_builds(tmp_path: Path) -> None:

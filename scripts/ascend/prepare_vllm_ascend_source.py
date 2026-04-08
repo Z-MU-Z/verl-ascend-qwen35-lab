@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
@@ -68,18 +69,52 @@ def replace_all(path: Path, replacements: dict[str, str]) -> bool:
     text = path.read_text()
     updated = text
     changed = False
+    matched_any = False
     for old, new in replacements.items():
-        if old not in updated:
-            raise PatchError(f"Expected snippet not found in {path}: {old}")
-        next_text = updated.replace(old, new)
-        changed = changed or next_text != updated
-        updated = next_text
+        if old in updated:
+            matched_any = True
+            next_text = updated.replace(old, new)
+            changed = changed or next_text != updated
+            updated = next_text
+        elif new in updated:
+            matched_any = True
+    if not matched_any:
+        raise PatchError(f"Expected snippet not found in {path}")
     if changed:
         path.write_text(updated)
     return changed
 
 
-def apply_patches(source_dir: Path, allow_torch_fallback_debug: bool) -> int:
+def copy_tree_contents(source_dir: Path, target_dir: Path) -> None:
+    if not source_dir.exists():
+        raise PatchError(f"Catlass source directory does not exist: {source_dir}")
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for child in source_dir.iterdir():
+        destination = target_dir / child.name
+        if destination.exists():
+            if destination.is_dir() and child.is_dir():
+                copy_tree_contents(child, destination)
+                continue
+            if destination.is_file() or destination.is_symlink():
+                destination.unlink()
+            else:
+                shutil.rmtree(destination)
+        if child.is_dir():
+            shutil.copytree(child, destination)
+        else:
+            shutil.copy2(child, destination)
+
+
+def ensure_catlass_tree(source_dir: Path, catlass_source_dir: Path | None) -> None:
+    if catlass_source_dir is None:
+        return
+    target_dir = source_dir / "csrc/third_party/catlass"
+    target_has_content = target_dir.exists() and any(target_dir.iterdir())
+    if not target_has_content:
+        copy_tree_contents(catlass_source_dir.resolve(), target_dir)
+
+
+def apply_patches(source_dir: Path, allow_torch_fallback_debug: bool, catlass_source_dir: Path | None) -> int:
     patched_files = 0
 
     if replace_once(source_dir / "setup.py", SETUP_OLD, SETUP_NEW):
@@ -95,6 +130,8 @@ def apply_patches(source_dir: Path, allow_torch_fallback_debug: bool) -> int:
         CMAKE_TORCH_GATE_NEW,
     ):
         patched_files += 1
+
+    ensure_catlass_tree(source_dir, catlass_source_dir)
 
     return patched_files
 
@@ -139,6 +176,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Optional path used to create a helper-bin llvm-objdump shim for remote builds.",
     )
+    parser.add_argument(
+        "--catlass-source-dir",
+        type=Path,
+        help="Optional path to an existing catlass checkout whose contents should populate an empty extracted target tree.",
+    )
     return parser.parse_args()
 
 
@@ -148,6 +190,7 @@ def main() -> int:
         patched_files = apply_patches(
             source_dir=args.source_dir.resolve(),
             allow_torch_fallback_debug=args.allow_torch_fallback_debug,
+            catlass_source_dir=args.catlass_source_dir,
         )
         if args.helper_bin_dir is not None:
             helper_bin_dir = args.helper_bin_dir.resolve()
