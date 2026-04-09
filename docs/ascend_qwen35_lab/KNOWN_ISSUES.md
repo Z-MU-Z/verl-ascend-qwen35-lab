@@ -131,3 +131,27 @@ What still matters:
 - the fallback smoke now dies in `vllm` engine startup on:
   - `AttributeError: torch._functorch.config.autograd_cache_normalize_inputs does not exist`
 - that failure is consistent with the fallback `torch 2.8.x` line being too old for the current `vllm` compile path
+
+### 9. vLLM Qwen3.5 rollout imports `torchvision` even for text-only GRPO
+
+Observed on `.36` with isolated `torch 2.9.0` env (`qwen35-t29-lite`) and `vllm==0.18.0` when starting `vLLMHttpServer`:
+
+- Surface error: `ValidationError` for `VllmConfig`, message like `Model architectures ['Qwen3_5ForConditionalGeneration'] failed to be inspected`.
+- Root cause in logs: `ModuleNotFoundError: No module named 'torchvision'` while importing `transformers.models.qwen2_vl.video_processing_qwen2_vl` (pulled in through vLLM’s `qwen3_5` → VL helper modules).
+
+**Install policy**
+
+- Do **not** run bare `pip install torchvision` on this stack: resolver may pull a `torchvision` that wants a **newer `torch` (e.g. 2.11)** and break the `torch_npu` pair.
+- For `torch==2.9.0`, install the matching vision build with **`--no-deps`** (PyTorch wiki pairs **2.9.0** with **torchvision 0.24.0**).
+
+Example (after venv + `source /usr/local/Ascend/ascend-toolkit/set_env.sh` so imports work):
+
+```bash
+pip install "torchvision==0.24.0" --no-deps --timeout 300 --retries 15
+```
+
+If downloads from PyPI time out, stage wheels on the host or use the lab mirror policy in `HANDOFF_20260409_FOR_37.md`.
+
+**Related env knob**
+
+- If you lower `actor_rollout_ref.rollout.max_num_batched_tokens` via env/script, keep it **≥ `max_num_seqs`** (often `1024` in defaults) or vLLM raises `SchedulerConfig` validation errors.
