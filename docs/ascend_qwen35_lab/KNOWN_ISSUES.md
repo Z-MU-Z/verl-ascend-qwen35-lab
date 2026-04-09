@@ -2,6 +2,8 @@
 
 This file records the current blockers and sharp edges for `Qwen3.5 + FSDP + GRPO` on Ascend NPU, with source links back to the upstream discussion.
 
+For the fallback-line debugging sequence on `.36`, including the path from shared-env recovery through the latest single-node smoke failure, see `docs/ascend_qwen35_lab/FALLBACK_DEBUG_TIMELINE_20260408.md`.
+
 ## Upstream state
 
 - The support landed through [PR #5682](https://github.com/verl-project/verl/pull/5682).
@@ -31,12 +33,16 @@ Current lab implication:
 - that fallback is for continued debugging only
 - it does not count as validation of the PR `#5682` matrix
 - for public-facing status, the current Ascend reference baseline should still be described as the `2.8.x` line
+- as of `2026-04-09`, the public `torch-npu` package index and README now also expose a documented `2.9.0` line for `CANN 8.5.0`
+- that makes `torch 2.9.0` + `torch-npu 2.9.0` the preferred intermediate validation candidate for this cluster
+- it still does not replace the final PR target of `torch 2.10`
 
 Sources:
 - https://github.com/verl-project/verl/issues/5441
 - https://github.com/verl-project/verl/pull/5682#issuecomment-4133604414
 - https://github.com/verl-project/verl/pull/5682#issuecomment-4146330454
 - local cluster observation while testing public `torch_npu 2.8.x`
+- https://pypi.org/project/torch-npu/
 
 ### 2. Ulysses sequence parallel is not supported yet
 
@@ -109,3 +115,19 @@ For reproducible debugging, keep those edits in the local helper:
 - `scripts/ascend/prepare_vllm_ascend_source.py`
 
 Do not treat ad-hoc edits inside remote `/tmp/.../vllm-ascend-*` trees as the authoritative patch source.
+
+Current status of that chain:
+
+- resolved for the current fallback install path on `.36`
+- `vllm_ascend` is now installed in `/shared/envs/qwen35`
+- both `.36` and `.37` can import `vllm_ascend` from the shared env
+- the previously missing `libvllm_ascend_kernels.so` is no longer the active blocker for this fallback line
+
+What still matters:
+
+- this remains a patched fallback install path, not an upstream-clean final matrix
+- the environment is still on `torch 2.8.x`, not the target `torch 2.10` line
+- smoke and training validation are still pending
+- the fallback smoke now dies in `vllm` engine startup on:
+  - `AttributeError: torch._functorch.config.autograd_cache_normalize_inputs does not exist`
+- that failure is consistent with the fallback `torch 2.8.x` line being too old for the current `vllm` compile path

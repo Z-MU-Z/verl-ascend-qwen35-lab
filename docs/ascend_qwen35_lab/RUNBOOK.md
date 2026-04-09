@@ -25,12 +25,15 @@ The lab currently has two distinct states:
   - `Python 3.10.20`
   - `torch 2.8.0`
   - `torch_npu 2.8.0.post2`
+  - `vllm 0.18.0`
+  - `vllm_ascend 0.0.0`
 
 Important:
 
 - the fallback state is only the last known importable debug environment
 - it is not the PR `#5682` validation matrix
 - the real blocker is still the missing `torch 2.10`-compatible `torch_npu` package, wheel bundle, or prebuilt image for this cluster
+- as of `2026-04-09`, the public `torch-npu` README and package index now show a documented `torch 2.9.0` + `torch-npu 2.9.0` path for `CANN 8.5.0`; this does not replace the final `2.10` target matrix, but it is now the highest-priority intermediate validation candidate
 
 ## Current NPU reference baseline
 
@@ -41,6 +44,16 @@ For current Ascend bring-up, treat the public `2.8.x` line as the usable referen
 - `transformers@8e26f7e`
 
 That public progress report came from issue `#5441`, which is consistent with the cluster behavior already seen in this lab: the public NPU line is still centered around `2.8.x`, while the PR `#5682` `2.10` matrix remains a target state rather than a proven public drop-in baseline.
+
+Additional current note:
+
+- the newer public `torch-npu` package metadata now exposes `2.9.0`
+- the current `torch-npu` README also documents:
+  - `CANN 8.5.0`
+  - `torch 2.9.0`
+  - `torch-npu 2.9.0`
+  - branch `v2.9.0-7.3.0`
+- for this lab, that makes `2.9.0` the preferred next isolated validation path before any attempt to force the final `2.10` matrix
 
 ## Recommended bring-up path right now
 
@@ -63,13 +76,22 @@ The shared activation script should source the host Ascend runtime automatically
 
 3. Re-run the shared-env import check on both `172.20.117.36` and `172.20.117.37` and record the output before changing anything else.
 
-4. Stop here if the cluster still only exposes public `torch_npu 2.8.x`.
+Latest known fallback import status:
+
+- `.36`: `torch`, `torch_npu`, `transformers`, `vllm`, and `vllm_ascend` all import from `/shared/envs/qwen35`
+- `.37`: `torch`, `torch_npu`, `transformers`, `vllm`, and `vllm_ascend` all import from `/shared/envs/qwen35`
+- for the latest `.36` agent handoff, including the validated isolated `torch 2.9.0` + `torch-npu 2.9.0` path and staged wheel locations, see `docs/ascend_qwen35_lab/HANDOFF_20260409.md`
+- for the full fallback debugging timeline from shared-env recovery through the latest single-node smoke failure, see `docs/ascend_qwen35_lab/FALLBACK_DEBUG_TIMELINE_20260408.md`
+
+4. If the cluster still only exposes only the old `2.8.x` line in practice, stop here and do not treat the fallback env as final validation.
 
 At that point the next step is not another blind reinstall and not a default smoke run. The next step is to obtain one of:
 
 - a `torch 2.10`-compatible `torch_npu` wheel
 - an official image with the matching stack already built
 - a Huawei-provided Python environment that reproduces the PR matrix
+
+If the host can now actually install public `torch 2.9.0` + `torch-npu 2.9.0`, prefer validating that pair in a fresh isolated env before revisiting fallback `2.8.x` smoke retries.
 
 5. Only after that missing runtime piece exists, rebuild the shared env and then install the pinned user-space stack.
 
@@ -111,6 +133,8 @@ export PATH=/tmp/vllm-ascend-helper-bin:$PATH
 
 If the goal is only to probe how far the fallback `torch 2.8.x` line can go, rerun the prepare step with `--allow-torch-fallback-debug`. Keep that as a diagnostic-only branch, not a final validation path.
 
+That diagnostic path has already been proven far enough to install `vllm_ascend` on `.36`. The next decision is no longer "can the package be built?" but "do we run a smoke on fallback, or stop and wait for the proper `torch 2.10` stack?"
+
 ## When to use the bootstrap script
 
 Use `scripts/ascend/bootstrap_qwen35_npu_env.sh` only after both of these are true:
@@ -124,6 +148,7 @@ Remember:
 - the cluster has already shown unreliable GitHub access for `pip install git+...`
 - for this lab, local tarballs under `/shared/dist` are safer than assuming remote GitHub access
 - `scripts/ascend/prepare_vllm_ascend_source.py` is the local reproducible way to carry the currently known `vllm-ascend` source patches forward; do not rely on ad-hoc edits under `/tmp` as the source of truth
+- `/home/zmz/bootstrap_bundle/dist` on `.36` now collects the current hard packages for reuse on a new machine
 
 ## Smoke test prerequisites
 

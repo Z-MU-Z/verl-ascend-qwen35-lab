@@ -35,6 +35,16 @@ bootstrap_bundle/
     triton_ascend-<platform>.whl
 ```
 
+Current known bundle on `.36`:
+
+- root: `/home/zmz/bootstrap_bundle`
+- populated today:
+  - `dist/transformers-cc7ab9be.tar.gz`
+  - `dist/vllm-0.18.0-cp38-abi3-manylinux_2_31_aarch64.whl`
+  - `dist/vllm-ascend-54879467.tar.gz`
+  - `dist/catlass-src.tar.gz`
+- `python/` is still optional and can stay empty if the new host can install the base wheels another way
+
 Rules of thumb:
 
 - put hard packages in `bootstrap_bundle/`

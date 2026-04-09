@@ -51,6 +51,7 @@ Build a two-host Huawei Ascend environment where:
 - Remote access from the cluster to `github.com` can time out during `pip install git+...`. For pinned source installs like `transformers@cc7ab9be` and `vllm-ascend@54879467`, it is safer to pre-download tarballs locally and upload them into `/shared/dist`.
 - The PR #5682 discussion says the working matrix uses `torch 2.10`, but the public Ascend `torch_npu` index currently exposed only `2.8.0.post1`, `2.7.1.post1`, `2.6.0.post4`, and `2.1.0.post18`. Installing `torch 2.10` together with public `torch_npu 2.8.x` breaks import with an undefined symbol from `libtorch_npu.so`.
 - Because of that public package gap, the shared env is currently restored to a coherent fallback state (`Python 3.10.20` + `torch 2.8.0` + `torch_npu 2.8.0.post2`) for continued debugging, but the full PR matrix is still blocked on a `torch 2.10`-compatible `torch_npu` source.
+- As of `2026-04-09`, the public `torch-npu` metadata and README now show a documented `torch 2.9.0` + `torch-npu 2.9.0` path for `CANN 8.5.0`. For this lab, that makes `2.9.0` the preferred intermediate validation line in a fresh isolated env, while the final target remains the PR `2.10` matrix.
 
 ## Source Of Truth
 
