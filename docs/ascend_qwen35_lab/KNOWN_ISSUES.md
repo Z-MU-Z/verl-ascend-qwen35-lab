@@ -73,7 +73,7 @@ The lab smoke script therefore starts with `use_remove_padding=False`.
 Source:
 - https://github.com/verl-project/verl/pull/5682#issuecomment-4152705666
 
-**Update (`2026-04-10`, `.36`, `torch_npu 2.9` + Qwen3.5-4B GRPO):** with `use_remove_padding=True` (as in `run_qwen3_5_4b_vllm_fsdp_npu.sh`), training can reach `trainer.fit()` → `_update_actor`, then **crash the FSDP worker with `SIGSEGV`** during autograd on **`convolution_backward` / `aclnnConvolutionBackwardGetWorkspaceSize`**. Ray then reports `ActorUnavailableError: Socket closed`. If you see that pattern, try **`actor_rollout_ref.model.use_remove_padding=False`** as a workaround and treat a persistent segfault as **CANN / `torch_npu` + VL conv backward** material for Huawei.
+**Update (`2026-04-10`, `.36`, `torch_npu 2.9` + Qwen3.5-4B GRPO):** training can reach `trainer.fit()` → `_update_actor`, then **crash the FSDP `WorkerDict` with `SIGSEGV`** during autograd on **`convolution_backward` / `aclnnConvolutionBackwardGetWorkspaceSize`** (vision tower on a VL-tagged Qwen3.5 checkpoint). Ray then surfaces **`ActorUnavailableError: Socket closed`**. **`actor_rollout_ref.model.use_remove_padding=False` did not remove this crash** in the lab repro. Next things to try: **`actor_rollout_ref.actor.freeze_vision_tower=True`** for text-only datasets (geo3k), a **text-only base** checkpoint if available, or escalate to **Huawei** with the C++ stack (CANN 8.5 + `torch_npu` 2.9). `examples/grpo_trainer/run_qwen3_5_4b_vllm_fsdp_npu.sh` now defaults `use_remove_padding` to **False** via `USE_REMOVE_PADDING` for safer NPU bring-up.
 
 ### 5. Explicit FSDP wrap policy may be required
 
