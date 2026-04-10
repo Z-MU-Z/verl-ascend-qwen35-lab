@@ -209,6 +209,53 @@ Notes:
 - Start with `ROLLOUT_MAX_MODEL_LEN=4096`; if rollout needs more context, retry at `8192`.
 - If this still segfaults in the same C++ stack, treat that as evidence against the current VL-tagged checkpoint on this NPU stack and escalate with the full crash stack plus package matrix.
 
+## SSH and remote lab paths (for the next agent)
+
+### Workflow (see also repo `AGENTS.md`)
+
+1. Edit and commit in **this** repository on your laptop (source of truth).
+2. `git push` from the laptop.
+3. SSH to the lab host and `cd` to the checkout below, then `git pull --ff-only`.
+4. Only then run training, smoke tests, or install packages into a **non-shared** venv if policy requires it.
+
+Do not make the remote machine the authoritative copy of code unless the user explicitly asks for a temporary hotfix (then mirror back to git immediately).
+
+### Hosts and SSH
+
+- Lab IPs referenced in docs: **`172.20.117.36`** (`.36`) and **`172.20.117.37`** (`.37`).
+- Many developers use an **`~/.ssh/config` Host alias** (e.g. **`huawei36`**) pointing at `.36`. Verify with your local config; there is no guarantee the alias name is the same on every machine.
+- On this lab laptop, confirmed aliases are **`huawei36`** → `zmz@172.20.117.36` and **`huawei37`** → `zmz@172.20.117.37`.
+- **Agent / IDE caveat:** terminal commands may run in an environment that **cannot route** to the lab VLAN. If `ssh …` returns **`Connection timed out`**, the failure is often **the agent runner’s network**, not broken SSH keys on your laptop. Quick probe:  
+  `ssh -o BatchMode=yes -o ConnectTimeout=15 huawei36 'echo OK'`
+
+Copy-paste connect + sync:
+
+```bash
+ssh huawei36
+cd /home/zmz/code/verl-ascend-qwen35-lab
+git pull --ff-only
+```
+
+### Paths on the remote hosts
+
+| Item | Typical path | Notes |
+|------|----------------|------|
+| Git checkout | `/shared/zmz/code/verl-ascend-qwen35-lab` **or** `/home/zmz/code/verl-ascend-qwen35-lab` | Use whichever exists; prior logs used `/shared/zmz/...`. |
+| Shared fallback env (`2.8` line) | `/shared/envs/qwen35` | Do not mutate for `2.9` experiments per handoff policy. |
+| Isolated `2.9` venv (example on `.36`) | `/home/zmz/envs/qwen35-t29-lite` | **Host-local** under `/home/zmz/...` — not visible on `.37` unless recreated. |
+| Shared dataset / artifact roots | `/shared` | e.g. data and checkpoints under `/shared/...`; layout varies by job. |
+| Model weights (example) | `/shared/weights/Qwen3.5-4B` | Confirm on host. |
+| Long-running smoke logs | `/tmp/grpo_*.log` | Or a path you choose for `nohup … > log`. |
+| Ascend runtime | `/usr/local/Ascend/ascend-toolkit/set_env.sh` | Also source `/usr/local/Ascend/nnal/atb/set_env.sh` when the stack expects it. |
+
+Shortcuts from `AGENTS.md` (when applicable on cluster accounts): shared code **`/home/zmz/code`**, data **`/home/zmz/verl/data`**, models **`/home/zmz/verl/models`** — reconcile with actual `MODEL_PATH` / `RAY_DATA_HOME` in your shell.
+
+### Doc and script pointers in this repo
+
+- `docs/ascend_qwen35_lab/HANDOFF_20260409_FOR_37.md` — isolated `2.9` env, geo3k smoke pip deps, Hydra knobs (`agent.num_workers`, `max_model_len`, etc.).
+- `docs/ascend_qwen35_lab/KNOWN_ISSUES.md` — torchvision / `PYTHONPATH`+`acl` / `convolution_backward` segfault and related issues.
+- `scripts/ascend/env.qwen35_npu.sh` — ensures CANN `python/site-packages` stays on `PYTHONPATH` for `vllm_ascend` workers.
+
 ## Suggested test sequence
 
 1. Reconfirm the fallback shared env is still importable on both hosts.
