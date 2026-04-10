@@ -152,6 +152,10 @@ pip install "torchvision==0.24.0" --no-deps --timeout 300 --retries 15
 
 If downloads from PyPI time out, stage wheels on the host or use the lab mirror policy in `HANDOFF_20260409_FOR_37.md`.
 
+**Do not replace `PYTHONPATH` after sourcing CANN**
+
+If you run `export PYTHONPATH=/path/to/verl-ascend-qwen35-lab` after `ascend-toolkit/set_env.sh`, you remove CANN’s `python/site-packages` from `PYTHONPATH`. Then vLLM’s `vllm_ascend` worker fails with `ModuleNotFoundError: No module named 'acl'`. Prefer `export PYTHONPATH=/path/to/repo:$PYTHONPATH`, or rely on `scripts/ascend/env.qwen35_npu.sh` (it prepends the usual CANN site-packages when missing).
+
 **Related env knob**
 
 - If you lower `actor_rollout_ref.rollout.max_num_batched_tokens` via env/script, keep it **≥ `max_num_seqs`** (often `1024` in defaults) or vLLM raises `SchedulerConfig` validation errors.
