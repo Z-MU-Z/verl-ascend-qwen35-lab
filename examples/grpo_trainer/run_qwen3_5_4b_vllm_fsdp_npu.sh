@@ -8,6 +8,9 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/scripts/ascend/env.qwen35_npu.sh"
 
+# Ascend: `use_remove_padding=True` can segfault in conv backward (see KNOWN_ISSUES §4).
+USE_REMOVE_PADDING="${USE_REMOVE_PADDING:-False}"
+
 PROJECT_NAME="${PROJECT_NAME:-GRPO-Qwen3_5}"
 EXP_NAME="${EXP_NAME:-GRPO-Qwen3_5-4B}"
 ENGINE="${ENGINE:-vllm}"
@@ -47,7 +50,7 @@ start_time="$(date +%Y%m%d_%H%M%S)"
   data.image_key=images \
   data.shuffle=False \
   actor_rollout_ref.model.path="${MODEL_PATH}" \
-  actor_rollout_ref.model.use_remove_padding=True \
+  actor_rollout_ref.model.use_remove_padding="${USE_REMOVE_PADDING}" \
   actor_rollout_ref.model.enable_gradient_checkpointing=True \
   actor_rollout_ref.actor.optim.lr=1e-6 \
   actor_rollout_ref.actor.ppo_mini_batch_size="${PPO_MINI_BATCH_SIZE}" \

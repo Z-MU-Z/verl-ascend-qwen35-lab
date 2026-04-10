@@ -73,6 +73,8 @@ The lab smoke script therefore starts with `use_remove_padding=False`.
 Source:
 - https://github.com/verl-project/verl/pull/5682#issuecomment-4152705666
 
+**Update (`2026-04-10`, `.36`, `torch_npu 2.9` + Qwen3.5-4B GRPO):** with `use_remove_padding=True` (as in `run_qwen3_5_4b_vllm_fsdp_npu.sh`), training can reach `trainer.fit()` → `_update_actor`, then **crash the FSDP worker with `SIGSEGV`** during autograd on **`convolution_backward` / `aclnnConvolutionBackwardGetWorkspaceSize`**. Ray then reports `ActorUnavailableError: Socket closed`. If you see that pattern, try **`actor_rollout_ref.model.use_remove_padding=False`** as a workaround and treat a persistent segfault as **CANN / `torch_npu` + VL conv backward** material for Huawei.
+
 ### 5. Explicit FSDP wrap policy may be required
 
 Some users could only start training after adding:
