@@ -103,7 +103,16 @@ Current status:
 - [ ] Confirm cluster base image versions on both hosts: `CANN`, driver, firmware, `torch`, `torch_npu`
 - [x] Snapshot the current package state with `python -m pip show` for key fallback packages on `.36`
 - [ ] Ask Huawei or the cluster owner for a `torch 2.10`-compatible `torch_npu` wheel, image, or prebuilt Python env
-- [ ] Decide whether to run a minimal fallback smoke now that `.36/.37` both import `vllm_ascend`, or stop and wait for the proper `torch 2.10` line
+- [ ] Run one text-only `Qwen3.5-4B` geo3k smoke with:
+  - `FREEZE_VISION_TOWER=True`
+  - `TRAIN_BATCH_SIZE=1`
+  - `PPO_MINI_BATCH_SIZE=1`
+  - `PPO_MICRO_BATCH_SIZE=1`
+  - `ROLLOUT_AGENT_NUM_WORKERS=1`
+  - `REWARD_NUM_WORKERS=1`
+  - `ROLLOUT_MAX_MODEL_LEN=4096` (retry with `8192` only if needed)
+  - `TRAINER_LOGGERS="['console']"`
+- [ ] If that freeze-vision smoke still dies in `aclnnConvolutionBackwardGetWorkspaceSize`, stop local tuning and escalate to Huawei with the full stack, model path, and package matrix
 
 ## After the blocker is resolved
 

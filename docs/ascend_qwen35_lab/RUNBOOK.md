@@ -184,6 +184,31 @@ The upstream NPU example is preserved in `examples/grpo_trainer/run_qwen3_5_27b_
 
 These are not final performance settings. They are meant to answer one question first: can the stack start cleanly and enter training on your NPU cluster.
 
+## Current 4B retry shape after the `convolution_backward` segfault
+
+For the current `Qwen3.5-4B` geo3k retry on the isolated `torch 2.9` line, prefer a text-only smoke shape that minimizes the chance of re-hitting known worker-count and logger issues before we learn whether freezing the vision tower avoids the NPU backward crash:
+
+```bash
+FREEZE_VISION_TOWER=True \
+TRAIN_BATCH_SIZE=1 \
+PPO_MINI_BATCH_SIZE=1 \
+PPO_MICRO_BATCH_SIZE=1 \
+ROLLOUT_AGENT_NUM_WORKERS=1 \
+REWARD_NUM_WORKERS=1 \
+ROLLOUT_MAX_MODEL_LEN=4096 \
+GPU_MEM_UTIL=0.2 \
+TRAINER_LOGGERS="['console']" \
+bash examples/grpo_trainer/run_qwen3_5_4b_vllm_fsdp_npu.sh
+```
+
+Notes:
+
+- `FREEZE_VISION_TOWER=True` is the main hypothesis test for the current `aclnnConvolutionBackwardGetWorkspaceSize` segfault.
+- `TRAIN_BATCH_SIZE=1` only works cleanly when `ROLLOUT_AGENT_NUM_WORKERS=1`; otherwise the agent loop can still fail earlier in `DataProto.chunk`.
+- `TRAINER_LOGGERS="['console']"` avoids taking a hard dependency on `tensorboard` for this smoke.
+- Start with `ROLLOUT_MAX_MODEL_LEN=4096`; if rollout needs more context, retry at `8192`.
+- If this still segfaults in the same C++ stack, treat that as evidence against the current VL-tagged checkpoint on this NPU stack and escalate with the full crash stack plus package matrix.
+
 ## Suggested test sequence
 
 1. Reconfirm the fallback shared env is still importable on both hosts.
