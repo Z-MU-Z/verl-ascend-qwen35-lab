@@ -204,3 +204,32 @@ Current lab action:
 - `scripts/ascend/env.qwen35_npu.sh` now prepends those runtime library directories when they exist
 - keep using that script after `ascend-toolkit/set_env.sh` so remote smoke retries do not depend on ad-hoc manual exports
 - if a host uses a different ATB layout, record the exact replacement path in the handoff before retrying
+
+### 12. Isolated `torch 2.9` single-card retries can still die in `camem.py` unless `enable_sleep_mode=False`
+
+Observed on `.36` (`2026-04-11`) after the run had already moved past:
+
+- the missing `npu_gemma_rms_norm` op
+- the missing `libatb.so` / `libtorch_python.so` visibility issue
+- the earlier batch-shape validation failures
+
+On the single-card `freeze_vision_tower=True` retry, the new fatal stack was:
+
+```text
+vllm_ascend/device_allocator/camem.py
+TypeError: 'NoneType' object is not callable
+```
+
+Root cause from the imported `camem.py`:
+
+- `vllm_ascend_C` failed to import because `libvllm_ascend_kernels.so` was not available in that isolated env
+- the module logged `Sleep mode will be disabled`
+- but `get_pluggable_allocator()` still called `init_module(...)` unconditionally
+- because `init_module` had been set to `None`, worker init failed later during the sleep-mode allocator path
+
+Current lab implication:
+
+- for this fallback `torch 2.9` line, **do not rely on rollout sleep mode**
+- use `actor_rollout_ref.rollout.enable_sleep_mode=False`
+- `examples/grpo_trainer/run_qwen3_5_4b_vllm_fsdp_npu.sh` now defaults `ENABLE_SLEEP_MODE=False` for the safer NPU smoke shape
+- if someone wants sleep mode later, first verify that `vllm_ascend_C` and `libvllm_ascend_kernels.so` both import cleanly in the target env

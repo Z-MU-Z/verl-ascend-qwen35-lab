@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 RUN_SCRIPT = ROOT / "scripts/ascend/run_qwen35_27b_npu_smoke.sh"
+RUN_4B_SCRIPT = ROOT / "examples/grpo_trainer/run_qwen3_5_4b_vllm_fsdp_npu.sh"
 ENV_SCRIPT = ROOT / "scripts/ascend/env.qwen35_npu.sh"
 ISSUES_DOC = ROOT / "docs/ascend_qwen35_lab/KNOWN_ISSUES.md"
 RUNBOOK_DOC = ROOT / "docs/ascend_qwen35_lab/RUNBOOK.md"
@@ -13,10 +14,21 @@ def test_run_script_pins_safe_smoke_defaults() -> None:
     content = RUN_SCRIPT.read_text()
 
     assert "actor_rollout_ref.model.use_remove_padding=False" in content
-    assert "actor_rollout_ref.actor.ulysses_sequence_parallel_size=1" in content
-    assert "actor_rollout_ref.ref.ulysses_sequence_parallel_size=1" in content
     assert "Qwen3_5DecoderLayer" in content
     assert "transformers.git@cc7ab9be" in content
+    assert "vllm==0.18.0" in content
+
+
+def test_4b_run_script_disables_sleep_mode_for_safe_npu_smoke() -> None:
+    content = RUN_4B_SCRIPT.read_text()
+
+    assert 'ENABLE_SLEEP_MODE="${ENABLE_SLEEP_MODE:-False}"' in content
+    assert 'actor_rollout_ref.rollout.enable_sleep_mode="${ENABLE_SLEEP_MODE}"' in content
+    assert 'SP_SIZE="${SP_SIZE:-1}"' in content
+    assert 'actor_rollout_ref.actor.ulysses_sequence_parallel_size="${SP_SIZE}"' in content
+    assert 'actor_rollout_ref.ref.ulysses_sequence_parallel_size="${SP_SIZE}"' in content
+    assert "Qwen3_5DecoderLayer" in content
+    assert "transformers@<cc7ab9be>" in content
     assert "vllm==0.18.0" in content
 
 
@@ -37,6 +49,8 @@ def test_known_issues_doc_records_key_blockers() -> None:
     assert "llvm-objdump" in content
     assert "libatb.so" in content
     assert "LD_LIBRARY_PATH" in content
+    assert "camem.py" in content
+    assert "enable_sleep_mode=False" in content
 
 
 def test_env_script_exports_single_node_hccl_and_runtime_library_paths() -> None:
@@ -63,6 +77,7 @@ def test_runbook_calls_out_matrix_gate_before_smoke() -> None:
     assert "--helper-llvm-objdump" in content
     assert "export PATH=/tmp/vllm-ascend-helper-bin:$PATH" in content
     assert "--no-build-isolation --no-deps /tmp/vllm-ascend-54879467-src" in content
+    assert "ENABLE_SLEEP_MODE=False" in content
 
 
 def test_todo_records_local_overlay_helper() -> None:

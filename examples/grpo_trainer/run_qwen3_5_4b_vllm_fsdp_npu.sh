@@ -13,6 +13,7 @@ USE_REMOVE_PADDING="${USE_REMOVE_PADDING:-False}"
 FREEZE_VISION_TOWER="${FREEZE_VISION_TOWER:-False}"
 ROLLOUT_AGENT_NUM_WORKERS="${ROLLOUT_AGENT_NUM_WORKERS:-1}"
 REWARD_NUM_WORKERS="${REWARD_NUM_WORKERS:-1}"
+ENABLE_SLEEP_MODE="${ENABLE_SLEEP_MODE:-False}"
 ROLLOUT_MAX_MODEL_LEN="${ROLLOUT_MAX_MODEL_LEN:-8192}"
 TRAINER_LOGGERS="${TRAINER_LOGGERS:-['console']}"
 
@@ -91,6 +92,7 @@ start_time="$(date +%Y%m%d_%H%M%S)"
   actor_rollout_ref.rollout.gpu_memory_utilization="${GPU_MEM_UTIL}" \
   actor_rollout_ref.rollout.n="${ROLLOUT_N}" \
   actor_rollout_ref.rollout.agent.num_workers="${ROLLOUT_AGENT_NUM_WORKERS}" \
+  actor_rollout_ref.rollout.enable_sleep_mode="${ENABLE_SLEEP_MODE}" \
   actor_rollout_ref.rollout.enable_chunked_prefill=True \
   actor_rollout_ref.rollout.max_model_len="${ROLLOUT_MAX_MODEL_LEN}" \
   actor_rollout_ref.rollout.max_num_batched_tokens="${MAX_NUM_BATCHED_TOKENS}" \
