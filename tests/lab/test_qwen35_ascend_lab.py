@@ -23,7 +23,7 @@ def test_4b_run_script_disables_sleep_mode_for_safe_npu_smoke() -> None:
     content = RUN_4B_SCRIPT.read_text()
 
     assert 'ENABLE_SLEEP_MODE="${ENABLE_SLEEP_MODE:-False}"' in content
-    assert 'actor_rollout_ref.rollout.enable_sleep_mode="${ENABLE_SLEEP_MODE}"' in content
+    assert '+actor_rollout_ref.rollout.enable_sleep_mode="${ENABLE_SLEEP_MODE}"' in content
     assert 'SP_SIZE="${SP_SIZE:-1}"' in content
     assert 'actor_rollout_ref.actor.ulysses_sequence_parallel_size="${SP_SIZE}"' in content
     assert 'actor_rollout_ref.ref.ulysses_sequence_parallel_size="${SP_SIZE}"' in content
