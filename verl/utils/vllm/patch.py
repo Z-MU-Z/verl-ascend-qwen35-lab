@@ -74,6 +74,49 @@ except ImportError:
     pass
 
 
+def patch_vllm_ascend_gemma_rms_norm_fallback(layernorm_module=None, torch_module=None, torch_npu_module=None):
+    """Fallback to torch_npu.npu_rms_norm when vllm_ascend expects a missing Gemma custom op."""
+    if layernorm_module is None:
+        try:
+            import vllm_ascend.ops.layernorm as layernorm_module
+        except ImportError:
+            return False
+
+    if torch_module is None:
+        try:
+            import torch as torch_module
+        except ImportError:
+            return False
+
+    if torch_npu_module is None:
+        try:
+            import torch_npu as torch_npu_module
+        except ImportError:
+            return False
+
+    ascend_ops = getattr(getattr(torch_module, "ops", None), "_C_ascend", None)
+    if ascend_ops is None or hasattr(ascend_ops, "npu_gemma_rms_norm"):
+        return False
+
+    ascend_gemma_rms_norm = getattr(layernorm_module, "AscendGemmaRMSNorm", None)
+    if ascend_gemma_rms_norm is None:
+        return False
+
+    original_forward = ascend_gemma_rms_norm.forward_oot
+    if getattr(original_forward, "_verl_npu_gemma_fallback", False):
+        return True
+
+    def forward_oot_with_fallback(self, x, residual=None):
+        if residual is not None:
+            return original_forward(self, x, residual=residual)
+        normalized, _ = torch_npu_module.npu_rms_norm(x.float(), 1.0 + self.weight.float(), self.variance_epsilon)
+        return normalized.type_as(x)
+
+    forward_oot_with_fallback._verl_npu_gemma_fallback = True
+    ascend_gemma_rms_norm.forward_oot = forward_oot_with_fallback
+    return True
+
+
 def patch_vllm_moe_model_weight_loader(model):
     # this is a work around to load the weight of vllm fused moe model
     # it is from a bug from vllm 0.8.2
