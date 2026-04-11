@@ -117,6 +117,21 @@ def patch_vllm_ascend_gemma_rms_norm_fallback(layernorm_module=None, torch_modul
     return True
 
 
+def patch_vllm_ascend_custom_op_disable(utils_module=None):
+    """Prime vllm-ascend custom-op cache to avoid first import under Dynamo."""
+    if utils_module is None:
+        try:
+            import vllm_ascend.utils as utils_module
+        except ImportError:
+            return False
+
+    if not hasattr(utils_module, "_CUSTOM_OP_ENABLED"):
+        return False
+
+    utils_module._CUSTOM_OP_ENABLED = False
+    return True
+
+
 def patch_vllm_moe_model_weight_loader(model):
     # this is a work around to load the weight of vllm fused moe model
     # it is from a bug from vllm 0.8.2

@@ -26,7 +26,11 @@ from vllm.outputs import RequestOutput
 
 from verl.utils.device import is_npu_available
 from verl.utils.vllm import TensorLoRARequest, VLLMHijack
-from verl.utils.vllm.patch import patch_vllm_ascend_gemma_rms_norm_fallback, patch_vllm_moe_model_weight_loader
+from verl.utils.vllm.patch import (
+    patch_vllm_ascend_custom_op_disable,
+    patch_vllm_ascend_gemma_rms_norm_fallback,
+    patch_vllm_moe_model_weight_loader,
+)
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
 
 try:
@@ -164,6 +168,7 @@ class vLLMColocateWorkerExtension:
             for k in VLLM_ASCEND_REQUIRED_ENV_VARS:
                 if k not in os.environ:
                     os.environ[k] = VLLM_ASCEND_REQUIRED_ENV_VARS[k]
+            patch_vllm_ascend_custom_op_disable()
             patch_vllm_ascend_gemma_rms_norm_fallback()
 
         instance = super().__new__(cls)

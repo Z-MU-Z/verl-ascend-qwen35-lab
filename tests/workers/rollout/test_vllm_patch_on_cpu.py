@@ -122,3 +122,13 @@ def test_patch_vllm_ascend_gemma_rms_norm_fallback_skips_when_op_exists():
 
     assert patched is False
     assert FakeAscendGemmaRMSNorm.forward_oot is original_forward
+
+
+def test_patch_vllm_ascend_custom_op_disable_primes_cached_flag():
+    patch_module = _load_patch_module()
+    fake_utils_module = SimpleNamespace(_CUSTOM_OP_ENABLED=None)
+
+    patched = patch_module.patch_vllm_ascend_custom_op_disable(utils_module=fake_utils_module)
+
+    assert patched is True
+    assert fake_utils_module._CUSTOM_OP_ENABLED is False
