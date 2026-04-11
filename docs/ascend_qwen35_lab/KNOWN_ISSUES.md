@@ -233,3 +233,22 @@ Current lab implication:
 - use `actor_rollout_ref.rollout.enable_sleep_mode=False`
 - `examples/grpo_trainer/run_qwen3_5_4b_vllm_fsdp_npu.sh` now defaults `ENABLE_SLEEP_MODE=False` for the safer NPU smoke shape
 - if someone wants sleep mode later, first verify that `vllm_ascend_C` and `libvllm_ascend_kernels.so` both import cleanly in the target env
+
+**Latest update (`2026-04-11`, `.36`, archived log `qwen35_4b_freezevis_singlecard_nosleepdefault2_20260411_210157.log`):**
+
+- with `enable_sleep_mode=False`, the run **did not** reproduce the earlier `camem.py` / `NoneType` crash
+- the job advanced again through `WorkerDict` and reached **`vLLMHttpServer`**
+- the latest visible warnings then shifted to:
+  - `Failed to import Triton kernels ... No module named 'triton.language.target_info'`
+  - `Unrecognized keys in rope_parameters for rope_type='default': {'mrope_interleaved', 'mrope_section'}`
+- the actual fatal exit was later in `EngineCore`, not at the warning site:
+  - `torch._dynamo.exc.Unsupported: Import failure`
+  - debug context: `module_name: vllm_ascend.vllm_ascend_C`
+  - stack crossed `vllm_ascend/ops/layernorm.py -> enable_custom_op()` during the Qwen3.5 dummy/profile run
+
+Current interpretation:
+
+- `camem` sleep-mode allocator is no longer the active blocker on this line
+- the active blocker moved deeper into the **vLLM / vllm-ascend custom-op import path**
+- the Triton and rope warnings are still useful correlation signals, but they were **not** the final terminating frame in this run
+- no newer `SIGSEGV` or `ActorUnavailableError` was captured in that archived log segment after the sleep-mode fix

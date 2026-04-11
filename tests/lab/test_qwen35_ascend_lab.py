@@ -51,6 +51,9 @@ def test_known_issues_doc_records_key_blockers() -> None:
     assert "LD_LIBRARY_PATH" in content
     assert "camem.py" in content
     assert "enable_sleep_mode=False" in content
+    assert "triton.language.target_info" in content
+    assert "torch._dynamo.exc.Unsupported: Import failure" in content
+    assert "vllm_ascend.vllm_ascend_C" in content
 
 
 def test_env_script_exports_single_node_hccl_and_runtime_library_paths() -> None:
@@ -78,6 +81,9 @@ def test_runbook_calls_out_matrix_gate_before_smoke() -> None:
     assert "export PATH=/tmp/vllm-ascend-helper-bin:$PATH" in content
     assert "--no-build-isolation --no-deps /tmp/vllm-ascend-54879467-src" in content
     assert "ENABLE_SLEEP_MODE=False" in content
+    assert "triton.language.target_info" in content
+    assert "torch._dynamo.exc.Unsupported: Import failure" in content
+    assert "vllm_ascend.vllm_ascend_C" in content
 
 
 def test_todo_records_local_overlay_helper() -> None:
