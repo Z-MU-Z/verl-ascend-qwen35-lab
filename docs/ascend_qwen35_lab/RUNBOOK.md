@@ -205,6 +205,8 @@ Notes:
 
 - `FREEZE_VISION_TOWER=True` is the main hypothesis test for the current `aclnnConvolutionBackwardGetWorkspaceSize` segfault.
 - `TRAIN_BATCH_SIZE=1` only works cleanly when `ROLLOUT_AGENT_NUM_WORKERS=1`; otherwise the agent loop can still fail earlier in `DataProto.chunk`.
+- For the current single-node `.36/.37` fallback line, keep `HCCL_INTRA_PCIE_ENABLE=1` and `HCCL_INTRA_ROCE_ENABLE=0`; enabling both caused early HCCL init failure during ref-model startup.
+- Also source `scripts/ascend/env.qwen35_npu.sh` in the isolated `torch 2.9` env before the smoke retry; it now restores the runtime `LD_LIBRARY_PATH` entries needed by `torch_npu.op_plugin.atb._atb_ops` (`site-packages/torch/lib`, `site-packages/torch_npu/lib`, and the host `libatb.so` directories under `/usr/local/Ascend/nnal/atb/...`).
 - `TRAINER_LOGGERS="['console']"` avoids taking a hard dependency on `tensorboard` for this smoke.
 - Start with `ROLLOUT_MAX_MODEL_LEN=4096`; if rollout needs more context, retry at `8192`.
 - If this still segfaults in the same C++ stack, treat that as evidence against the current VL-tagged checkpoint on this NPU stack and escalate with the full crash stack plus package matrix.

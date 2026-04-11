@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 RUN_SCRIPT = ROOT / "scripts/ascend/run_qwen35_27b_npu_smoke.sh"
+ENV_SCRIPT = ROOT / "scripts/ascend/env.qwen35_npu.sh"
 ISSUES_DOC = ROOT / "docs/ascend_qwen35_lab/KNOWN_ISSUES.md"
 RUNBOOK_DOC = ROOT / "docs/ascend_qwen35_lab/RUNBOOK.md"
 TODO_DOC = ROOT / "docs/ascend_qwen35_lab/TODO.md"
@@ -34,6 +35,19 @@ def test_known_issues_doc_records_key_blockers() -> None:
     assert "https://github.com/verl-project/verl/pull/5682#issuecomment-4152705666" in content
     assert "prepare_vllm_ascend_source.py" in content
     assert "llvm-objdump" in content
+    assert "libatb.so" in content
+    assert "LD_LIBRARY_PATH" in content
+
+
+def test_env_script_exports_single_node_hccl_and_runtime_library_paths() -> None:
+    content = ENV_SCRIPT.read_text()
+
+    assert 'export HCCL_INTRA_ROCE_ENABLE="${HCCL_INTRA_ROCE_ENABLE:-0}"' in content
+    assert 'export HCCL_INTRA_PCIE_ENABLE="${HCCL_INTRA_PCIE_ENABLE:-1}"' in content
+    assert "site-packages/torch/lib" in content
+    assert "site-packages/torch_npu/lib" in content
+    assert "/usr/local/Ascend/nnal/atb/8.5.0/atb/cxx_abi_1/lib" in content
+    assert "LD_LIBRARY_PATH" in content
 
 
 def test_runbook_calls_out_matrix_gate_before_smoke() -> None:

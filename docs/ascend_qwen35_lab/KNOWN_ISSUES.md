@@ -161,3 +161,46 @@ If you run `export PYTHONPATH=/path/to/verl-ascend-qwen35-lab` after `ascend-too
 **Related env knob**
 
 - If you lower `actor_rollout_ref.rollout.max_num_batched_tokens` via env/script, keep it **≥ `max_num_seqs`** (often `1024` in defaults) or vLLM raises `SchedulerConfig` validation errors.
+
+### 10. Single-node `.36/.37` fallback runs can fail early if both intra-PCIE and intra-ROCE are enabled
+
+Observed on `.36` (`2026-04-10`) during the single-node `Qwen3.5-4B` freeze-vision smoke:
+
+- Failure surfaced in ref-model init / HCCL bring-up, not in the earlier `convolution_backward` path.
+- Error shape:
+  - `RuntimeError: createHCCLCommOrigin ... HcclGetRootInfo(&hcclID)`
+  - `ERR02200 DIST call hccl api failed`
+  - `Config_Error_Invalid_Environment_Variable(EI0001): Environment variable [HCCL_INTRA_PCIE_ENABLE or HCCL_INTRA_ROCE_ENABLE] is invalid`
+
+For this single-node lab topology, the known-good fallback is:
+
+```bash
+export HCCL_INTRA_PCIE_ENABLE=1
+export HCCL_INTRA_ROCE_ENABLE=0
+```
+
+`scripts/ascend/env.qwen35_npu.sh` now defaults to that combination for local bring-up. If a host needs a different fabric policy, override explicitly in the shell before running the smoke script.
+
+### 11. Isolated `torch 2.9` runs on `.36` can still fail in vLLM worker init if ATB libraries are not on `LD_LIBRARY_PATH`
+
+Observed on `.36` (`2026-04-11`) after the local fallback patch for missing `torch.ops._C_ascend.npu_gemma_rms_norm` was committed in `4890034a` and the job advanced past the earlier Qwen3.5 layernorm failure:
+
+- the previous `AttributeError: '_OpNamespace' '_C_ascend' object has no attribute 'npu_gemma_rms_norm'` no longer reproduced in the rerun
+- the next stable blocker moved to `torch_npu.op_plugin.atb._atb_ops`
+- surface error in the vLLM worker:
+  - `OSError: libatb.so: cannot open shared object file: No such file or directory`
+- when only `libatb.so` was added, another missing dependency also surfaced:
+  - `libtorch_python.so`
+
+Direct host validation on `.36` showed the import succeeds once `LD_LIBRARY_PATH` includes all of:
+
+- the active venv `site-packages/torch/lib`
+- the active venv `site-packages/torch_npu/lib`
+- `/usr/local/Ascend/nnal/atb/8.5.0/atb/cxx_abi_1/lib`
+- `/usr/local/Ascend/nnal/atb/8.5.0/atb/cxx_abi_0/lib`
+
+Current lab action:
+
+- `scripts/ascend/env.qwen35_npu.sh` now prepends those runtime library directories when they exist
+- keep using that script after `ascend-toolkit/set_env.sh` so remote smoke retries do not depend on ad-hoc manual exports
+- if a host uses a different ATB layout, record the exact replacement path in the handoff before retrying
