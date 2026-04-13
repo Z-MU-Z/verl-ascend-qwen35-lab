@@ -566,7 +566,7 @@ class vLLMHttpServer:
             logger.info("skip wake_up in standalone mode")
 
     async def sleep(self):
-        if self.node_rank != 0 or not self.config.free_cache_engine:
+        if self.node_rank != 0 or not self.config.free_cache_engine or not self.config.enable_sleep_mode:
             return
 
         if self.rollout_mode == RolloutMode.HYBRID:

@@ -252,3 +252,39 @@ Current interpretation:
 - the active blocker moved deeper into the **vLLM / vllm-ascend custom-op import path**
 - the Triton and rope warnings are still useful correlation signals, but they were **not** the final terminating frame in this run
 - no newer `SIGSEGV` or `ActorUnavailableError` was captured in that archived log segment after the sleep-mode fix
+
+### 13. `enable_sleep_mode=False` can still reach `camem` via `sleep_replicas()` and then fail on `expandable_segments:True`
+
+Observed on `.36` in archived log:
+
+- `/home/zmz/verl/log_archive/qwen35_4b_freezevis_singlecard_customopoff_20260411_232308.log`
+
+Latest confirmed behavior:
+
+- the run advanced past the earlier missing `npu_gemma_rms_norm` and custom-op import blockers
+- `vLLMHttpServer` completed graph capture and `EngineCore` launched
+- the later failure happened during `CheckpointManager.sleep_replicas()` rather than during model profile warmup
+
+Fatal stack signature:
+
+```text
+AssertionError: Expandable segments are not compatible with memory pool.
+```
+
+Key path:
+
+- `verl/checkpoint_engine/base.py -> sleep_replicas()`
+- `verl/workers/rollout/vllm_rollout/vllm_async_server.py -> sleep()`
+- `vllm_ascend/worker/worker.py -> sleep`
+- `vllm_ascend/device_allocator/camem.py -> CaMemAllocator`
+
+Root cause:
+
+- this repo's `vLLMHttpServer.__init__` sets `set_expandable_segments(True)` when `enable_sleep_mode=False`
+- but `sleep()` was still callable later through checkpoint-engine replica management
+- on Ascend, `vllm_ascend` `CaMemAllocator` rejects `expandable_segments:True` when entering the memory-pool sleep path
+
+Lab implication:
+
+- for the current fallback NPU line, `enable_sleep_mode=False` must also imply **skip rollout sleep calls**
+- otherwise the job can still die in `camem.py` even after avoiding the earlier `NoneType` and custom-op startup failures

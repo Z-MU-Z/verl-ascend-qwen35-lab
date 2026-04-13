@@ -8,6 +8,7 @@ ENV_SCRIPT = ROOT / "scripts/ascend/env.qwen35_npu.sh"
 ISSUES_DOC = ROOT / "docs/ascend_qwen35_lab/KNOWN_ISSUES.md"
 RUNBOOK_DOC = ROOT / "docs/ascend_qwen35_lab/RUNBOOK.md"
 TODO_DOC = ROOT / "docs/ascend_qwen35_lab/TODO.md"
+VLLM_ASYNC_SERVER = ROOT / "verl/workers/rollout/vllm_rollout/vllm_async_server.py"
 
 
 def test_run_script_pins_safe_smoke_defaults() -> None:
@@ -54,6 +55,7 @@ def test_known_issues_doc_records_key_blockers() -> None:
     assert "triton.language.target_info" in content
     assert "torch._dynamo.exc.Unsupported: Import failure" in content
     assert "vllm_ascend.vllm_ascend_C" in content
+    assert "Expandable segments are not compatible with memory pool" in content
 
 
 def test_env_script_exports_single_node_hccl_and_runtime_library_paths() -> None:
@@ -84,6 +86,13 @@ def test_runbook_calls_out_matrix_gate_before_smoke() -> None:
     assert "triton.language.target_info" in content
     assert "torch._dynamo.exc.Unsupported: Import failure" in content
     assert "vllm_ascend.vllm_ascend_C" in content
+    assert "Expandable segments are not compatible with memory pool" in content
+
+
+def test_vllm_async_server_skips_sleep_when_sleep_mode_disabled() -> None:
+    content = VLLM_ASYNC_SERVER.read_text()
+
+    assert "or not self.config.enable_sleep_mode" in content
 
 
 def test_todo_records_local_overlay_helper() -> None:
