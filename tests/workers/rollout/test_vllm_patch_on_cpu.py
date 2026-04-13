@@ -138,23 +138,31 @@ def test_patch_vllm_ascend_causal_conv1d_fallback_registers_python_op_when_missi
     patch_module = _load_patch_module()
     calls = {}
 
-    def fake_causal_conv1d_update(
+    def fake_fallback_runner(
         x,
-        conv_state,
         weight,
-        bias,
-        activation,
-        **kwargs,
+        *,
+        conv_state,
+        bias_opt,
+        query_start_loc,
+        cache_indices,
+        has_initial_state,
+        num_accepted_tokens,
+        activation_mode,
+        pad_slot_id,
     ):
         calls["x"] = x
-        calls["conv_state"] = conv_state
         calls["weight"] = weight
-        calls["bias"] = bias
-        calls["activation"] = activation
-        calls["kwargs"] = kwargs
+        calls["conv_state"] = conv_state
+        calls["bias_opt"] = bias_opt
+        calls["query_start_loc"] = query_start_loc
+        calls["cache_indices"] = cache_indices
+        calls["has_initial_state"] = has_initial_state
+        calls["num_accepted_tokens"] = num_accepted_tokens
+        calls["activation_mode"] = activation_mode
+        calls["pad_slot_id"] = pad_slot_id
         return "fallback-output"
 
-    fake_patch_module = SimpleNamespace(causal_conv1d_update=fake_causal_conv1d_update)
     fake_torch_module = SimpleNamespace(
         bool="bool_dtype",
         int32="int32_dtype",
@@ -170,8 +178,8 @@ def test_patch_vllm_ascend_causal_conv1d_fallback_registers_python_op_when_missi
     fake_torch_module.tensor = fake_tensor
 
     patched = patch_module.patch_vllm_ascend_causal_conv1d_fallback(
-        qwen35_patch_module=fake_patch_module,
         torch_module=fake_torch_module,
+        fallback_runner=fake_fallback_runner,
     )
 
     assert patched is True
@@ -194,14 +202,15 @@ def test_patch_vllm_ascend_causal_conv1d_fallback_registers_python_op_when_missi
 
     assert output == "fallback-output"
     assert calls["x"].name == "hidden"
-    assert calls["conv_state"] == "conv_state.transpose(-1,-2)"
-    assert calls["weight"] == "weight_t.transpose(0,1)"
-    assert calls["bias"] == "bias"
-    assert calls["activation"] is True
-    assert calls["kwargs"]["conv_state_indices"].values == [7, 9]
-    assert calls["kwargs"]["query_start_loc"].values == [0, 3, 5]
-    assert calls["kwargs"]["max_query_len"] == 3
-    assert calls["kwargs"]["validate_data"] is False
+    assert calls["weight"].name == "weight_t"
+    assert calls["conv_state"] is conv_state
+    assert calls["bias_opt"] == "bias"
+    assert calls["query_start_loc"].values == [0, 3, 5]
+    assert calls["cache_indices"].values == [7, 9]
+    assert calls["has_initial_state"].values == [True, False]
+    assert calls["num_accepted_tokens"] is None
+    assert calls["activation_mode"] == 1
+    assert calls["pad_slot_id"] == -1
     assert conv_state.zeroed == [9]
     assert tensor_calls == [
         {"values": [7, 9], "device": "npu:0", "dtype": "int32_dtype"},
@@ -218,8 +227,8 @@ def test_patch_vllm_ascend_causal_conv1d_fallback_skips_when_op_exists():
     )
 
     patched = patch_module.patch_vllm_ascend_causal_conv1d_fallback(
-        qwen35_patch_module=SimpleNamespace(causal_conv1d_update=lambda *args, **kwargs: None),
         torch_module=fake_torch_module,
+        fallback_runner=lambda *args, **kwargs: None,
     )
 
     assert patched is False

@@ -132,14 +132,61 @@ def patch_vllm_ascend_custom_op_disable(utils_module=None):
     return True
 
 
-def patch_vllm_ascend_causal_conv1d_fallback(qwen35_patch_module=None, torch_module=None):
-    """Install a Python fallback for missing npu_causal_conv1d_custom in torch.ops._C_ascend."""
-    if qwen35_patch_module is None:
-        try:
-            import vllm_ascend.patch.worker.patch_qwen3_5 as qwen35_patch_module
-        except ImportError:
-            return False
+def _build_causal_conv1d_ref_runner(torch_module, causal_conv1d_ref):
+    def run_causal_conv1d_ref_fallback(
+        x,
+        weight,
+        *,
+        conv_state,
+        bias_opt,
+        query_start_loc,
+        cache_indices,
+        has_initial_state,
+        num_accepted_tokens,
+        activation_mode,
+        pad_slot_id,
+    ):
+        del num_accepted_tokens
+        if query_start_loc is None or cache_indices is None:
+            raise RuntimeError("causal_conv1d custom-op fallback requires varlen query_start_loc and cache_indices")
 
+        native_weight = weight.transpose(0, 1).contiguous()
+        native_conv_state = conv_state.transpose(-1, -2).contiguous()
+        activation = "silu" if activation_mode == 1 else None
+        outputs = []
+
+        for idx in range(len(cache_indices)):
+            cache_index = cache_indices[idx]
+            if cache_index == pad_slot_id:
+                continue
+
+            start = query_start_loc[idx]
+            end = query_start_loc[idx + 1]
+            seq = x[start:end].transpose(0, 1).unsqueeze(0)
+            initial_states = None
+            if has_initial_state is None or has_initial_state[idx]:
+                initial_states = native_conv_state[cache_index].unsqueeze(0)
+
+            out, final_state = causal_conv1d_ref(
+                seq,
+                native_weight,
+                bias=bias_opt,
+                initial_states=initial_states,
+                return_final_states=True,
+                activation=activation,
+            )
+            native_conv_state[cache_index].copy_(final_state.squeeze(0))
+            outputs.append(out.squeeze(0).transpose(0, 1))
+
+        if not outputs:
+            return x
+        return torch_module.cat(outputs, dim=0)
+
+    return run_causal_conv1d_ref_fallback
+
+
+def patch_vllm_ascend_causal_conv1d_fallback(torch_module=None, causal_conv1d_module=None, fallback_runner=None):
+    """Install a Python fallback for missing npu_causal_conv1d_custom in torch.ops._C_ascend."""
     if torch_module is None:
         try:
             import torch as torch_module
@@ -150,12 +197,20 @@ def patch_vllm_ascend_causal_conv1d_fallback(qwen35_patch_module=None, torch_mod
     if ascend_ops is None or hasattr(ascend_ops, "npu_causal_conv1d_custom"):
         return False
 
-    causal_conv1d_update = getattr(qwen35_patch_module, "causal_conv1d_update", None)
-    if causal_conv1d_update is None:
-        return False
-
     if getattr(ascend_ops, "_verl_npu_causal_conv1d_fallback", False):
         return True
+
+    if fallback_runner is None:
+        if causal_conv1d_module is None:
+            try:
+                import vllm_ascend.ops.triton.mamba.causal_conv1d as causal_conv1d_module
+            except ImportError:
+                return False
+
+        causal_conv1d_ref = getattr(causal_conv1d_module, "causal_conv1d_ref", None)
+        if causal_conv1d_ref is None:
+            return False
+        fallback_runner = _build_causal_conv1d_ref_runner(torch_module, causal_conv1d_ref)
 
     def _to_tensor_1d(values, *, device, dtype):
         if values is None:
@@ -191,24 +246,17 @@ def patch_vllm_ascend_causal_conv1d_fallback(qwen35_patch_module=None, torch_mod
             if missing_initial_state.any():
                 conv_state[conv_state_indices[missing_initial_state]] = 0
 
-        max_query_len = -1
-        if query_start_loc is not None and len(query_start_loc) > 1:
-            max_query_len = max(
-                query_start_loc[idx + 1] - query_start_loc[idx] for idx in range(len(query_start_loc) - 1)
-            )
-
-        return causal_conv1d_update(
+        return fallback_runner(
             x,
-            conv_state.transpose(-1, -2),
-            weight.transpose(0, 1),
-            bias_opt,
-            activation_mode == 1,
-            conv_state_indices=conv_state_indices,
-            num_accepted_tokens=num_accepted_tokens,
+            weight,
+            conv_state=conv_state,
+            bias_opt=bias_opt,
             query_start_loc=query_start_loc,
-            max_query_len=max_query_len,
+            cache_indices=conv_state_indices,
+            has_initial_state=has_initial_state,
+            num_accepted_tokens=num_accepted_tokens,
+            activation_mode=activation_mode,
             pad_slot_id=pad_slot_id,
-            validate_data=False,
         )
 
     npu_causal_conv1d_custom_fallback._verl_npu_causal_conv1d_fallback = True
