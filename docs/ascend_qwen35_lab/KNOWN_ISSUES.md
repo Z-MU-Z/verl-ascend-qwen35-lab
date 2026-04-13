@@ -301,13 +301,14 @@ Updated fatal path:
 
 - `verl/workers/fsdp_workers.py -> rollout_mode()`
 - `verl/workers/rollout/vllm_rollout/vllm_rollout.py -> resume(tags=["weights"])`
-- `verl/workers/rollout/vllm_rollout/vllm_async_server.py -> wake_up()`
+- `verl/workers/rollout/vllm_rollout/vllm_async_server.py -> collective_rpc("wake_up")`
 - `vllm_ascend/worker/worker.py -> wake_up`
 - `vllm_ascend/device_allocator/camem.py -> CaMemAllocator`
 
 Updated implication:
 
 - for this fallback NPU line, `enable_sleep_mode=False` must imply **skip both `sleep()` and `wake_up()`**
+- guarding `vLLMHttpServer.wake_up()` alone is insufficient, because `ServerAdapter.resume()` can still dispatch `collective_rpc("wake_up")` whenever only `free_cache_engine=True`
 - otherwise `CaMemAllocator` can still be re-entered during rollout resume and hit the same `expandable_segments:True` assertion
 
 ### 14. Local fix timeline for the current `.36` fallback line
@@ -318,10 +319,14 @@ Updated implication:
 - `55f59261`: record the deeper `vllm_ascend.vllm_ascend_C` import-failure root cause in local docs
 - `a8fc03cf`: disable the late vllm-ascend custom-op import before Dynamo/profile run
 - `7d312155`: skip rollout `sleep()` when `enable_sleep_mode=False`
+- `ebb36589`: skip wrapper-level `wake_up()` when `enable_sleep_mode=False`
+- local follow-up after `ebb36589`: `ServerAdapter.resume()` / `release()` must also gate on `enable_sleep_mode`, not only `free_cache_engine`
 
-Current status after `7d312155`:
+Current status after the `ServerAdapter` follow-up:
 
 - solved: missing `npu_gemma_rms_norm` startup failure
 - solved: late custom-op import failure during profile/dummy run
 - solved: `sleep()`-time `camem` allocator assertion
-- still active: `wake_up()`-time `camem` allocator assertion when rollout resumes with `expandable_segments:True`
+- solved: wrapper-level `wake_up()` entry when `enable_sleep_mode=False`
+- solved locally: adapter-level `collective_rpc("wake_up")` / `collective_rpc("sleep")` should now be skipped when `enable_sleep_mode=False`
+- still active: rerun confirmation on `.36` after syncing the local adapter guard

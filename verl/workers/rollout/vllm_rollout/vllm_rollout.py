@@ -142,12 +142,12 @@ class ServerAdapter(BaseRollout):
         Args:
             tags: weights or kv_cache.
         """
-        if self.config.free_cache_engine:
+        if self.config.free_cache_engine and self.config.enable_sleep_mode:
             await self._execute_method("wake_up", kwargs={"tags": tags})
 
     async def release(self):
         """Release weights and kv cache in GPU memory."""
-        if self.config.free_cache_engine:
+        if self.config.free_cache_engine and self.config.enable_sleep_mode:
             await self._execute_method("sleep", kwargs={"level": self.sleep_level})
 
     @torch.no_grad()
