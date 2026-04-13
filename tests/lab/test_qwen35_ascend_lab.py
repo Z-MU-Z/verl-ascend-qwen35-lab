@@ -70,6 +70,10 @@ def test_known_issues_doc_records_key_blockers() -> None:
     assert "/shared/envs/qwen35" in content
     assert "npu_causal_conv1d_custom" in content
     assert "qwen35_4b_freezevis_t29lite_n8_20260413_133024.log" in content
+    assert "function' object has no attribute 'scalar'" in content
+    assert "qwen35_4b_freezevis_t29lite_n8_causalconvfix_20260413_164416.log" in content
+    assert "qwen35_4b_freezevis_t29lite_n8_refconvfix_20260413_173332.log" in content
+    assert "global_step_5" in content
 
 
 def test_env_script_exports_single_node_hccl_and_runtime_library_paths() -> None:
@@ -107,6 +111,9 @@ def test_runbook_calls_out_matrix_gate_before_smoke() -> None:
     assert "deprecated for active bring-up" in content
     assert "npu_causal_conv1d_custom" in content
     assert "t29-lite" in content
+    assert "function' object has no attribute 'scalar'" in content
+    assert "refconvfix" in content
+    assert "Training Progress" in content
 
 
 def test_check_env_script_requires_t29_lite_runtime() -> None:

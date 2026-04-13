@@ -373,3 +373,85 @@ Current local mitigation:
 - add a local Python fallback that registers `_C_ascend.npu_causal_conv1d_custom` when the op is missing
 - route that fallback to the already-imported `causal_conv1d_update(...)` path used by the shipped vllm-ascend Qwen patches
 - keep the logs archived permanently so Huawei can compare the missing-op failure before and after the fallback
+
+### 16. The first Python fallback for missing `npu_causal_conv1d_custom` can still fail later inside the Triton-style causal-conv path with `AttributeError: 'function' object has no attribute 'scalar'`
+
+Observed on `.36` (`2026-04-13`) after syncing local commit `4da1b9d3` in archived log:
+
+- `/home/zmz/verl/log_archive/qwen35_4b_freezevis_t29lite_n8_causalconvfix_20260413_164416.log`
+
+What changed in that retry:
+
+- the earlier `_C_ascend.npu_causal_conv1d_custom` missing-op crash no longer reproduced
+- the run advanced through:
+  - `vLLMHttpServer`
+  - graph capture
+  - `AgentLoopManager`
+  - `Training from scratch`
+
+New deterministic failure shape:
+
+- `WorkerProc hit an exception`
+- `EngineCore encountered a fatal error`
+- final root error:
+  - `AttributeError: 'function' object has no attribute 'scalar'`
+
+Key interpretation from the stack:
+
+- the first fallback implementation routed the missing custom op into the shipped `causal_conv1d_update(...)` path
+- that moved the failure deeper into the Triton-style causal-conv execution path
+- the crash point no longer indicated a missing Ascend op registration; it indicated that this fallback path itself was not compatible with the active runtime stack on `.36`
+
+Lab conclusion from this failed intermediate retry:
+
+- the local custom-op registration workaround was still useful, because it proved the previous `_C_ascend.npu_causal_conv1d_custom` blocker was real and was successfully bypassed
+- however, the first fallback target was too aggressive for the current runtime
+- the safer next step was to replace that fallback with a reference / pure-Python causal-conv path instead of the Triton-style update kernel
+
+### 17. After switching the causal-conv fallback to a reference path, the `.36` `t29-lite` run advanced into real training and checkpointing
+
+Observed on `.36` (`2026-04-13`) after syncing local commit `48469269` in archived log:
+
+- `/home/zmz/verl/log_archive/qwen35_4b_freezevis_t29lite_n8_refconvfix_20260413_173332.log`
+
+Latest confirmed behavior:
+
+- the run no longer reproduced:
+  - missing `_C_ascend.npu_causal_conv1d_custom`
+  - the intermediate `AttributeError: 'function' object has no attribute 'scalar'`
+- the run advanced through:
+  - `ref_init_model`
+  - actor/ref weight loading
+  - `vLLMHttpServer`
+  - graph capture
+  - `AgentLoopManager`
+  - initial validation
+  - repeated training steps with `Training Progress`
+
+Concrete evidence from the archived log:
+
+- `Initial validation metrics: ...`
+- `step:1 ...`
+- `step:5 ...`
+- `step:13 ...`
+- checkpoint save records under:
+  - `/home/zmz/verl/ckpts/GRPO-Qwen3_5/GRPO-Qwen3_5-4B/global_step_5/...`
+
+Current status at the time of this note:
+
+- this is no longer a startup-only smoke failure
+- this line has already entered active training on `.36`
+- the remaining recurring messages in this run are warnings, not confirmed fatal blockers:
+  - `triton.language.target_info`
+  - `libvllm_ascend_kernels.so` import warning in `camem.py`
+  - unrecognized `rope_parameters` keys for `rope_type='default'`
+
+Most recent lab interpretation:
+
+- the current best-known local workaround stack on `.36` is:
+  - `use_remove_padding=False`
+  - `/home/zmz/envs/qwen35-t29-lite`
+  - `ENABLE_SLEEP_MODE=False`
+  - local fallback for missing `npu_gemma_rms_norm`
+  - local fallback for missing `npu_causal_conv1d_custom`, but now routed to a reference causal-conv path
+- with that stack, the run has already crossed from bring-up debugging into actual training execution
