@@ -552,7 +552,7 @@ class vLLMHttpServer:
         )
 
     async def wake_up(self):
-        if self.node_rank != 0:
+        if self.node_rank != 0 or not self.config.enable_sleep_mode:
             return
 
         if self.rollout_mode == RolloutMode.HYBRID:

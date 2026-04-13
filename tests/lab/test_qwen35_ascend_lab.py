@@ -56,6 +56,10 @@ def test_known_issues_doc_records_key_blockers() -> None:
     assert "torch._dynamo.exc.Unsupported: Import failure" in content
     assert "vllm_ascend.vllm_ascend_C" in content
     assert "Expandable segments are not compatible with memory pool" in content
+    assert "wake_up" in content
+    assert "4890034a" in content
+    assert "a8fc03cf" in content
+    assert "7d312155" in content
 
 
 def test_env_script_exports_single_node_hccl_and_runtime_library_paths() -> None:
@@ -87,12 +91,19 @@ def test_runbook_calls_out_matrix_gate_before_smoke() -> None:
     assert "torch._dynamo.exc.Unsupported: Import failure" in content
     assert "vllm_ascend.vllm_ascend_C" in content
     assert "Expandable segments are not compatible with memory pool" in content
+    assert "wake_up()" in content
 
 
 def test_vllm_async_server_skips_sleep_when_sleep_mode_disabled() -> None:
     content = VLLM_ASYNC_SERVER.read_text()
 
     assert "or not self.config.enable_sleep_mode" in content
+
+
+def test_vllm_async_server_skips_wake_up_when_sleep_mode_disabled() -> None:
+    content = VLLM_ASYNC_SERVER.read_text()
+
+    assert "if self.node_rank != 0 or not self.config.enable_sleep_mode:" in content
 
 
 def test_todo_records_local_overlay_helper() -> None:

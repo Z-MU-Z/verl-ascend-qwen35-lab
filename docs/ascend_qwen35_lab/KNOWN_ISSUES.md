@@ -288,3 +288,40 @@ Lab implication:
 
 - for the current fallback NPU line, `enable_sleep_mode=False` must also imply **skip rollout sleep calls**
 - otherwise the job can still die in `camem.py` even after avoiding the earlier `NoneType` and custom-op startup failures
+
+**Follow-up update (`2026-04-13`, `.36`, archived log `qwen35_4b_freezevis_singlecard_nosleepskip_20260413_101327.log`):**
+
+- after locally patching `vLLMHttpServer.sleep()` to no-op when `enable_sleep_mode=False`, the run advanced further:
+  - `filter dataset len: 2101`
+  - `filter dataset len: 601`
+  - rollout worker launched, weights loaded, `AgentLoopManager` started, and training moved to `Training from scratch`
+- the same allocator conflict then reappeared one step later in **`wake_up()`**, not `sleep()`
+
+Updated fatal path:
+
+- `verl/workers/fsdp_workers.py -> rollout_mode()`
+- `verl/workers/rollout/vllm_rollout/vllm_rollout.py -> resume(tags=["weights"])`
+- `verl/workers/rollout/vllm_rollout/vllm_async_server.py -> wake_up()`
+- `vllm_ascend/worker/worker.py -> wake_up`
+- `vllm_ascend/device_allocator/camem.py -> CaMemAllocator`
+
+Updated implication:
+
+- for this fallback NPU line, `enable_sleep_mode=False` must imply **skip both `sleep()` and `wake_up()`**
+- otherwise `CaMemAllocator` can still be re-entered during rollout resume and hit the same `expandable_segments:True` assertion
+
+### 14. Local fix timeline for the current `.36` fallback line
+
+- `4890034a`: fallback for missing `torch.ops._C_ascend.npu_gemma_rms_norm`
+- `a252524d`: restore Ascend/ATB runtime library paths for the isolated env
+- `34e118b3` + `7c2c2984`: force `ENABLE_SLEEP_MODE=False` via the Qwen3.5 4B smoke script
+- `55f59261`: record the deeper `vllm_ascend.vllm_ascend_C` import-failure root cause in local docs
+- `a8fc03cf`: disable the late vllm-ascend custom-op import before Dynamo/profile run
+- `7d312155`: skip rollout `sleep()` when `enable_sleep_mode=False`
+
+Current status after `7d312155`:
+
+- solved: missing `npu_gemma_rms_norm` startup failure
+- solved: late custom-op import failure during profile/dummy run
+- solved: `sleep()`-time `camem` allocator assertion
+- still active: `wake_up()`-time `camem` allocator assertion when rollout resumes with `expandable_segments:True`
