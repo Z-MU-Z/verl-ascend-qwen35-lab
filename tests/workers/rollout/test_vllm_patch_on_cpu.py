@@ -132,3 +132,153 @@ def test_patch_vllm_ascend_custom_op_disable_primes_cached_flag():
 
     assert patched is True
     assert fake_utils_module._CUSTOM_OP_ENABLED is False
+
+
+def test_patch_vllm_ascend_causal_conv1d_fallback_registers_python_op_when_missing():
+    patch_module = _load_patch_module()
+    calls = {}
+
+    def fake_causal_conv1d_update(
+        x,
+        conv_state,
+        weight,
+        bias,
+        activation,
+        **kwargs,
+    ):
+        calls["x"] = x
+        calls["conv_state"] = conv_state
+        calls["weight"] = weight
+        calls["bias"] = bias
+        calls["activation"] = activation
+        calls["kwargs"] = kwargs
+        return "fallback-output"
+
+    fake_patch_module = SimpleNamespace(causal_conv1d_update=fake_causal_conv1d_update)
+    fake_torch_module = SimpleNamespace(
+        bool="bool_dtype",
+        int32="int32_dtype",
+        ops=SimpleNamespace(_C_ascend=SimpleNamespace()),
+    )
+    tensor_calls = []
+
+    def fake_tensor(values, device=None, dtype=None):
+        values = list(values)
+        tensor_calls.append({"values": values, "device": device, "dtype": dtype})
+        return FakeIndexTensor(values, device=device, dtype=dtype)
+
+    fake_torch_module.tensor = fake_tensor
+
+    patched = patch_module.patch_vllm_ascend_causal_conv1d_fallback(
+        qwen35_patch_module=fake_patch_module,
+        torch_module=fake_torch_module,
+    )
+
+    assert patched is True
+    assert hasattr(fake_torch_module.ops._C_ascend, "npu_causal_conv1d_custom")
+
+    conv_state = FakeConvState()
+    output = fake_torch_module.ops._C_ascend.npu_causal_conv1d_custom(
+        FakeInputTensor("hidden", device="npu:0"),
+        FakeTransposeTensor("weight_t"),
+        conv_state=conv_state,
+        bias_opt="bias",
+        query_start_loc_opt=(0, 3, 5),
+        cache_indices_opt=(7, 9),
+        initial_state_mode_opt=(True, False),
+        num_accepted_tokens_opt=[],
+        activation_mode=1,
+        pad_slot_id=-1,
+        run_mode=0,
+    )
+
+    assert output == "fallback-output"
+    assert calls["x"].name == "hidden"
+    assert calls["conv_state"] == "conv_state.transpose(-1,-2)"
+    assert calls["weight"] == "weight_t.transpose(0,1)"
+    assert calls["bias"] == "bias"
+    assert calls["activation"] is True
+    assert calls["kwargs"]["conv_state_indices"].values == [7, 9]
+    assert calls["kwargs"]["query_start_loc"].values == [0, 3, 5]
+    assert calls["kwargs"]["max_query_len"] == 3
+    assert calls["kwargs"]["validate_data"] is False
+    assert conv_state.zeroed == [9]
+    assert tensor_calls == [
+        {"values": [7, 9], "device": "npu:0", "dtype": "int32_dtype"},
+        {"values": [0, 3, 5], "device": "npu:0", "dtype": "int32_dtype"},
+        {"values": [True, False], "device": "npu:0", "dtype": "bool_dtype"},
+    ]
+
+
+def test_patch_vllm_ascend_causal_conv1d_fallback_skips_when_op_exists():
+    patch_module = _load_patch_module()
+    original = object()
+    fake_torch_module = SimpleNamespace(
+        ops=SimpleNamespace(_C_ascend=SimpleNamespace(npu_causal_conv1d_custom=original))
+    )
+
+    patched = patch_module.patch_vllm_ascend_causal_conv1d_fallback(
+        qwen35_patch_module=SimpleNamespace(causal_conv1d_update=lambda *args, **kwargs: None),
+        torch_module=fake_torch_module,
+    )
+
+    assert patched is False
+    assert fake_torch_module.ops._C_ascend.npu_causal_conv1d_custom is original
+
+
+class FakeTransposeTensor:
+    def __init__(self, name: str):
+        self.name = name
+
+    def transpose(self, dim0, dim1):
+        return f"{self.name}.transpose({dim0},{dim1})"
+
+
+class FakeInputTensor:
+    def __init__(self, name: str, device: str):
+        self.name = name
+        self.device = device
+
+
+class FakeMask:
+    def __init__(self, values):
+        self.values = list(values)
+
+    def any(self):
+        return any(self.values)
+
+
+class FakeIndexTensor:
+    def __init__(self, values, device=None, dtype=None):
+        self.values = list(values)
+        self.device = device
+        self.dtype = dtype
+
+    def numel(self):
+        return len(self.values)
+
+    def __len__(self):
+        return len(self.values)
+
+    def __iter__(self):
+        return iter(self.values)
+
+    def __invert__(self):
+        return FakeMask([not value for value in self.values])
+
+    def __getitem__(self, item):
+        if isinstance(item, FakeMask):
+            return FakeIndexTensor([value for value, keep in zip(self.values, item.values) if keep])
+        return self.values[item]
+
+
+class FakeConvState:
+    def __init__(self):
+        self.zeroed = []
+
+    def transpose(self, dim0, dim1):
+        return f"conv_state.transpose({dim0},{dim1})"
+
+    def __setitem__(self, item, value):
+        assert value == 0
+        self.zeroed.extend(item.values)

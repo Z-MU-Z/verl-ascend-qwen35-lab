@@ -132,6 +132,91 @@ def patch_vllm_ascend_custom_op_disable(utils_module=None):
     return True
 
 
+def patch_vllm_ascend_causal_conv1d_fallback(qwen35_patch_module=None, torch_module=None):
+    """Install a Python fallback for missing npu_causal_conv1d_custom in torch.ops._C_ascend."""
+    if qwen35_patch_module is None:
+        try:
+            import vllm_ascend.patch.worker.patch_qwen3_5 as qwen35_patch_module
+        except ImportError:
+            return False
+
+    if torch_module is None:
+        try:
+            import torch as torch_module
+        except ImportError:
+            return False
+
+    ascend_ops = getattr(getattr(torch_module, "ops", None), "_C_ascend", None)
+    if ascend_ops is None or hasattr(ascend_ops, "npu_causal_conv1d_custom"):
+        return False
+
+    causal_conv1d_update = getattr(qwen35_patch_module, "causal_conv1d_update", None)
+    if causal_conv1d_update is None:
+        return False
+
+    if getattr(ascend_ops, "_verl_npu_causal_conv1d_fallback", False):
+        return True
+
+    def _to_tensor_1d(values, *, device, dtype):
+        if values is None:
+            return None
+        if hasattr(values, "numel"):
+            return values
+        if len(values) == 0:
+            return None
+        return torch_module.tensor(list(values), device=device, dtype=dtype)
+
+    def npu_causal_conv1d_custom_fallback(
+        x,
+        weight,
+        *,
+        conv_state,
+        bias_opt=None,
+        query_start_loc_opt=(),
+        cache_indices_opt=(),
+        initial_state_mode_opt=(),
+        num_accepted_tokens_opt=(),
+        activation_mode=0,
+        pad_slot_id=-1,
+        run_mode=0,
+    ):
+        del run_mode
+        conv_state_indices = _to_tensor_1d(cache_indices_opt, device=x.device, dtype=torch_module.int32)
+        query_start_loc = _to_tensor_1d(query_start_loc_opt, device=x.device, dtype=torch_module.int32)
+        has_initial_state = _to_tensor_1d(initial_state_mode_opt, device=x.device, dtype=torch_module.bool)
+        num_accepted_tokens = _to_tensor_1d(num_accepted_tokens_opt, device=x.device, dtype=torch_module.int32)
+
+        if conv_state_indices is not None and has_initial_state is not None:
+            missing_initial_state = ~has_initial_state
+            if missing_initial_state.any():
+                conv_state[conv_state_indices[missing_initial_state]] = 0
+
+        max_query_len = -1
+        if query_start_loc is not None and len(query_start_loc) > 1:
+            max_query_len = max(
+                query_start_loc[idx + 1] - query_start_loc[idx] for idx in range(len(query_start_loc) - 1)
+            )
+
+        return causal_conv1d_update(
+            x,
+            conv_state.transpose(-1, -2),
+            weight.transpose(0, 1),
+            bias_opt,
+            activation_mode == 1,
+            conv_state_indices=conv_state_indices,
+            num_accepted_tokens=num_accepted_tokens,
+            query_start_loc=query_start_loc,
+            max_query_len=max_query_len,
+            pad_slot_id=pad_slot_id,
+            validate_data=False,
+        )
+
+    npu_causal_conv1d_custom_fallback._verl_npu_causal_conv1d_fallback = True
+    setattr(ascend_ops, "npu_causal_conv1d_custom", npu_causal_conv1d_custom_fallback)
+    setattr(ascend_ops, "_verl_npu_causal_conv1d_fallback", True)
+    return True
+
+
 def patch_vllm_moe_model_weight_loader(model):
     # this is a work around to load the weight of vllm fused moe model
     # it is from a bug from vllm 0.8.2

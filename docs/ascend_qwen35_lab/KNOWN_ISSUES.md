@@ -333,3 +333,43 @@ Current status after the `ServerAdapter` follow-up:
 - solved: wrapper-level `wake_up()` entry when `enable_sleep_mode=False`
 - solved locally: adapter-level `collective_rpc("wake_up")` / `collective_rpc("sleep")` should now be skipped when `enable_sleep_mode=False`
 - still active: rerun confirmation on `.36` after syncing the local adapter guard
+
+### 15. The required `/home/zmz/envs/qwen35-t29-lite` env on `.36` can still fail inside `EngineCore` if `_C_ascend.npu_causal_conv1d_custom` is absent
+
+Observed on `.36` (`2026-04-13`) in archived log:
+
+- `/home/zmz/verl/log_archive/qwen35_4b_freezevis_t29lite_n8_20260413_133024.log`
+
+Confirmed runtime facts from the active lab env:
+
+- `source /home/zmz/envs/qwen35-t29-lite/bin/activate`
+- `source /usr/local/Ascend/ascend-toolkit/set_env.sh`
+- `source /usr/local/Ascend/nnal/atb/set_env.sh`
+- `hasattr(torch.ops, "_C_ascend") == True`
+- `hasattr(torch.ops._C_ascend, "npu_gemma_rms_norm") == False`
+- `hasattr(torch.ops._C_ascend, "npu_causal_conv1d_custom") == False`
+
+Latest deterministic failure shape:
+
+- the run no longer died at the older shared-env `torch._functorch.config.autograd_cache_normalize_inputs` error
+- the run passed env checks, Ray startup, dataset filtering, and rollout worker construction
+- the fatal error moved deeper into the vLLM execution path during the Qwen3.5 / Qwen3Next GatedDeltaNet prefill path
+- final stack shape in the archived log:
+  - `vllm/model_executor/models/qwen3_next.py -> gdn_attention_core`
+  - `vllm_ascend/patch/worker/patch_qwen3_5.py`
+  - `vllm_ascend/patch/worker/patch_qwen3_next.py`
+  - `AttributeError: '_OpNamespace' '_C_ascend' object has no attribute 'npu_causal_conv1d_custom'`
+  - `EngineCore encountered a fatal error`
+  - `EngineDeadError`
+
+Current interpretation:
+
+- this is not a startup-only import error
+- it happens during actual model execution / profile dummy run inside vLLM
+- package source under `vllm_ascend` still contains Python/NPU `causal_conv1d` implementations, so the failure looks like a missing custom-op registration / exposure gap rather than proof that the math path is completely unavailable
+
+Current local mitigation:
+
+- add a local Python fallback that registers `_C_ascend.npu_causal_conv1d_custom` when the op is missing
+- route that fallback to the already-imported `causal_conv1d_update(...)` path used by the shipped vllm-ascend Qwen patches
+- keep the logs archived permanently so Huawei can compare the missing-op failure before and after the fallback

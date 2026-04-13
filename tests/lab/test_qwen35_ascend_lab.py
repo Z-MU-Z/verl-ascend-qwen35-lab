@@ -68,6 +68,8 @@ def test_known_issues_doc_records_key_blockers() -> None:
     assert 'collective_rpc("wake_up")' in content
     assert "/home/zmz/envs/qwen35-t29-lite" in content
     assert "/shared/envs/qwen35" in content
+    assert "npu_causal_conv1d_custom" in content
+    assert "qwen35_4b_freezevis_t29lite_n8_20260413_133024.log" in content
 
 
 def test_env_script_exports_single_node_hccl_and_runtime_library_paths() -> None:
@@ -103,6 +105,8 @@ def test_runbook_calls_out_matrix_gate_before_smoke() -> None:
     assert 'collective_rpc("wake_up")' in content
     assert "/home/zmz/envs/qwen35-t29-lite" in content
     assert "deprecated for active bring-up" in content
+    assert "npu_causal_conv1d_custom" in content
+    assert "t29-lite" in content
 
 
 def test_check_env_script_requires_t29_lite_runtime() -> None:
