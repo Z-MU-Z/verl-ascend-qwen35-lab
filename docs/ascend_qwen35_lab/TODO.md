@@ -2,6 +2,8 @@
 
 Current status:
 
+- Active bring-up must use `/home/zmz/envs/qwen35-t29-lite`.
+- The old shared fallback env `/shared/envs/qwen35` is deprecated for active bring-up and should be treated as historical reference only.
 - The shared env is currently back in a coherent fallback state:
   - `/shared/envs/qwen35`
   - `Python 3.10.20`

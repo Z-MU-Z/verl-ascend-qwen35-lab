@@ -32,6 +32,8 @@ Important:
 
 - the fallback state is only the last known importable debug environment
 - it is not the PR `#5682` validation matrix
+- for active bring-up on `.36`, `/shared/envs/qwen35` is deprecated for active bring-up
+- the required runtime for current retries is `/home/zmz/envs/qwen35-t29-lite`
 - the real blocker is still the missing `torch 2.10`-compatible `torch_npu` package, wheel bundle, or prebuilt image for this cluster
 - as of `2026-04-09`, the public `torch-npu` README and package index now show a documented `torch 2.9.0` + `torch-npu 2.9.0` path for `CANN 8.5.0`; this does not replace the final `2.10` target matrix, but it is now the highest-priority intermediate validation candidate
 
@@ -65,21 +67,30 @@ cp scripts/ascend/env.qwen35_host.sh.example scripts/ascend/env.qwen35_host.sh
 source scripts/ascend/env.qwen35_host.sh
 ```
 
-2. Activate the shared lab environment:
+2. Activate the required host-local `2.9` lab environment:
 
 ```bash
-source scripts/ascend/env.qwen35_shared.sh
+source /home/zmz/envs/qwen35-t29-lite/bin/activate
 python scripts/ascend/check_qwen35_npu_env.py
 ```
 
-The shared activation script should source the host Ascend runtime automatically when those `set_env.sh` files exist. If imports still fail, confirm both `/usr/local/Ascend/ascend-toolkit/set_env.sh` and `/usr/local/Ascend/nnal/atb/set_env.sh` are present and readable on that host.
+Then source the host Ascend runtime and repo env helpers:
+
+```bash
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
+source /usr/local/Ascend/nnal/atb/set_env.sh
+source scripts/ascend/env.qwen35_npu.sh
+python scripts/ascend/check_qwen35_npu_env.py
+```
+
+Do not use `/shared/envs/qwen35` for current smoke retries. It remains a historical fallback reference only. If imports still fail, confirm both `/usr/local/Ascend/ascend-toolkit/set_env.sh` and `/usr/local/Ascend/nnal/atb/set_env.sh` are present and readable on that host.
 
 3. Re-run the shared-env import check on both `172.20.117.36` and `172.20.117.37` and record the output before changing anything else.
 
-Latest known fallback import status:
+Latest required import status:
 
-- `.36`: `torch`, `torch_npu`, `transformers`, `vllm`, and `vllm_ascend` all import from `/shared/envs/qwen35`
-- `.37`: `torch`, `torch_npu`, `transformers`, `vllm`, and `vllm_ascend` all import from `/shared/envs/qwen35`
+- `.36`: current bring-up must run from `/home/zmz/envs/qwen35-t29-lite`
+- `.37`: recreate `/home/zmz/envs/qwen35-t29-lite` locally before retrying there; do not assume the `.36` host-local env is shared
 - for the latest `.36` agent handoff, including the validated isolated `torch 2.9.0` + `torch-npu 2.9.0` path and staged wheel locations, see `docs/ascend_qwen35_lab/HANDOFF_20260409.md`
 - for the full fallback debugging timeline from shared-env recovery through the latest single-node smoke failure, see `docs/ascend_qwen35_lab/FALLBACK_DEBUG_TIMELINE_20260408.md`
 
@@ -109,13 +120,13 @@ Use `--allow-torch-fallback-debug` only for explicit fallback debugging. Do not 
 
 ## Fallback debug retry template
 
-When the user explicitly wants one more fallback-line diagnostic pass on `.36`, keep the repo as the source of truth and use a repeatable command sequence instead of re-editing `/tmp` by hand:
+When the user explicitly wants one more fallback-line diagnostic pass on `.36`, keep the repo as the source of truth and use the required host-local `2.9` env instead of the deprecated shared fallback env:
 
 ```bash
+source /home/zmz/envs/qwen35-t29-lite/bin/activate
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 source /usr/local/Ascend/nnal/atb/set_env.sh
-source /shared/tools/miniforge3/etc/profile.d/conda.sh
-conda activate /shared/envs/qwen35
+python scripts/ascend/check_qwen35_npu_env.py
 
 rm -rf /tmp/vllm-ascend-54879467-src /tmp/vllm-ascend-helper-bin
 mkdir -p /tmp/vllm-ascend-54879467-src
@@ -128,7 +139,7 @@ python3 scripts/ascend/prepare_vllm_ascend_source.py \
   --helper-llvm-objdump /usr/local/Ascend/cann-8.5.0/tools/ccec_compiler/bin/llvm-objdump
 
 export PATH=/tmp/vllm-ascend-helper-bin:$PATH
-/shared/envs/qwen35/bin/python -m pip install -v --no-build-isolation --no-deps /tmp/vllm-ascend-54879467-src
+python -m pip install -v --no-build-isolation --no-deps /tmp/vllm-ascend-54879467-src
 ```
 
 If the goal is only to probe how far the fallback `torch 2.8.x` line can go, rerun the prepare step with `--allow-torch-fallback-debug`. Keep that as a diagnostic-only branch, not a final validation path.
@@ -251,8 +262,8 @@ git pull --ff-only
 | Item | Typical path | Notes |
 |------|----------------|------|
 | Git checkout | `/shared/zmz/code/verl-ascend-qwen35-lab` **or** `/home/zmz/code/verl-ascend-qwen35-lab` | Use whichever exists; prior logs used `/shared/zmz/...`. |
-| Shared fallback env (`2.8` line) | `/shared/envs/qwen35` | Do not mutate for `2.9` experiments per handoff policy. |
-| Isolated `2.9` venv (example on `.36`) | `/home/zmz/envs/qwen35-t29-lite` | **Host-local** under `/home/zmz/...` — not visible on `.37` unless recreated. |
+| Shared fallback env (`2.8` line) | `/shared/envs/qwen35` | Deprecated for active bring-up; keep only as historical fallback reference. |
+| Required isolated `2.9` venv | `/home/zmz/envs/qwen35-t29-lite` | Required current runtime on `.36`; recreate host-locally on `.37` before use. |
 | Shared dataset / artifact roots | `/shared` | e.g. data and checkpoints under `/shared/...`; layout varies by job. |
 | Model weights (example) | `/shared/weights/Qwen3.5-4B` | Confirm on host. |
 | Long-running smoke logs | `/tmp/grpo_*.log` | Or a path you choose for `nohup … > log`. |

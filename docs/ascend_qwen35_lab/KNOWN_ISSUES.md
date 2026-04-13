@@ -31,6 +31,8 @@ Current lab implication:
 
 - the shared env is temporarily restored to an importable fallback state based on `torch 2.8.0` + `torch_npu 2.8.0.post2`
 - that fallback is for continued debugging only
+- `/shared/envs/qwen35` is now deprecated for active bring-up and should not be used for current `.36` retries
+- the required current retry env is `/home/zmz/envs/qwen35-t29-lite`
 - it does not count as validation of the PR `#5682` matrix
 - for public-facing status, the current Ascend reference baseline should still be described as the `2.8.x` line
 - as of `2026-04-09`, the public `torch-npu` package index and README now also expose a documented `2.9.0` line for `CANN 8.5.0`
@@ -129,6 +131,7 @@ What still matters:
 
 - this remains a patched fallback install path, not an upstream-clean final matrix
 - the environment is still on `torch 2.8.x`, not the target `torch 2.10` line
+- this shared fallback env is deprecated for active bring-up; current retries must run from `/home/zmz/envs/qwen35-t29-lite`
 - smoke and training validation are still pending
 - the fallback smoke now dies in `vllm` engine startup on:
   - `AttributeError: torch._functorch.config.autograd_cache_normalize_inputs does not exist`

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import importlib
+import sys
 from importlib.metadata import PackageNotFoundError, version
 
+REQUIRED_ENV_PATH = "/home/zmz/envs/qwen35-t29-lite"
 
 PINS = {
     "transformers": "git+https://github.com/huggingface/transformers.git@cc7ab9be",
@@ -40,6 +42,14 @@ def module_version(module_name: str) -> str:
 
 
 def main() -> int:
+    active_python = sys.executable
+    print(f"Required lab env: {REQUIRED_ENV_PATH}")
+    print(f"Active Python: {active_python}")
+    if not active_python.startswith(REQUIRED_ENV_PATH):
+        print("ERROR: active Python is not the required lab env.")
+        print("Refusing to continue with deprecated shared/fallback environments.")
+        return 2
+
     print("Expected pins for this lab:")
     for name, pin in PINS.items():
         print(f"  - {name}: {pin}")

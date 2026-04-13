@@ -4,6 +4,14 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
+REQUIRED_ENV_PATH="/home/zmz/envs/qwen35-t29-lite"
+
+if [[ "${VIRTUAL_ENV:-}" != "${REQUIRED_ENV_PATH}" ]]; then
+  echo "This script must run from ${REQUIRED_ENV_PATH}" >&2
+  echo "Current VIRTUAL_ENV=${VIRTUAL_ENV:-<unset>}" >&2
+  echo "The old shared env /shared/envs/qwen35 is deprecated for active bring-up." >&2
+  exit 2
+fi
 
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/scripts/ascend/env.qwen35_npu.sh"

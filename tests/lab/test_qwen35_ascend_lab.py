@@ -5,6 +5,7 @@ ROOT = Path(__file__).resolve().parents[2]
 RUN_SCRIPT = ROOT / "scripts/ascend/run_qwen35_27b_npu_smoke.sh"
 RUN_4B_SCRIPT = ROOT / "examples/grpo_trainer/run_qwen3_5_4b_vllm_fsdp_npu.sh"
 ENV_SCRIPT = ROOT / "scripts/ascend/env.qwen35_npu.sh"
+CHECK_ENV_SCRIPT = ROOT / "scripts/ascend/check_qwen35_npu_env.py"
 ISSUES_DOC = ROOT / "docs/ascend_qwen35_lab/KNOWN_ISSUES.md"
 RUNBOOK_DOC = ROOT / "docs/ascend_qwen35_lab/RUNBOOK.md"
 TODO_DOC = ROOT / "docs/ascend_qwen35_lab/TODO.md"
@@ -24,6 +25,8 @@ def test_run_script_pins_safe_smoke_defaults() -> None:
 def test_4b_run_script_disables_sleep_mode_for_safe_npu_smoke() -> None:
     content = RUN_4B_SCRIPT.read_text()
 
+    assert 'REQUIRED_ENV_PATH="/home/zmz/envs/qwen35-t29-lite"' in content
+    assert 'This script must run from ${REQUIRED_ENV_PATH}' in content
     assert 'ENABLE_SLEEP_MODE="${ENABLE_SLEEP_MODE:-False}"' in content
     assert '+actor_rollout_ref.rollout.enable_sleep_mode="${ENABLE_SLEEP_MODE}"' in content
     assert 'SP_SIZE="${SP_SIZE:-1}"' in content
@@ -63,6 +66,8 @@ def test_known_issues_doc_records_key_blockers() -> None:
     assert "7d312155" in content
     assert "ebb36589" in content
     assert 'collective_rpc("wake_up")' in content
+    assert "/home/zmz/envs/qwen35-t29-lite" in content
+    assert "/shared/envs/qwen35" in content
 
 
 def test_env_script_exports_single_node_hccl_and_runtime_library_paths() -> None:
@@ -83,7 +88,7 @@ def test_runbook_calls_out_matrix_gate_before_smoke() -> None:
     assert "CANN 8.5.0.B160" in content
     assert "torch_npu 2.8.0" in content
     assert "missing `torch 2.10`-compatible `torch_npu`" in content
-    assert "source scripts/ascend/env.qwen35_shared.sh" in content
+    assert "source /home/zmz/envs/qwen35-t29-lite/bin/activate" in content
     assert "Do not start the smoke script until" in content
     assert "prepare_vllm_ascend_source.py" in content
     assert "--helper-llvm-objdump" in content
@@ -96,6 +101,15 @@ def test_runbook_calls_out_matrix_gate_before_smoke() -> None:
     assert "Expandable segments are not compatible with memory pool" in content
     assert "wake_up()" in content
     assert 'collective_rpc("wake_up")' in content
+    assert "/home/zmz/envs/qwen35-t29-lite" in content
+    assert "deprecated for active bring-up" in content
+
+
+def test_check_env_script_requires_t29_lite_runtime() -> None:
+    content = CHECK_ENV_SCRIPT.read_text()
+
+    assert 'REQUIRED_ENV_PATH = "/home/zmz/envs/qwen35-t29-lite"' in content
+    assert "ERROR: active Python is not the required lab env" in content
 
 
 def test_vllm_async_server_skips_sleep_when_sleep_mode_disabled() -> None:
@@ -122,3 +136,4 @@ def test_todo_records_local_overlay_helper() -> None:
     assert "prepare_vllm_ascend_source.py" in content
     assert "helper-bin shims" in content
     assert "Convert the remote-only `vllm-ascend` source patches" in content
+    assert "/home/zmz/envs/qwen35-t29-lite" in content
