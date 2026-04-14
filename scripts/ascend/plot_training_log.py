@@ -71,13 +71,16 @@ def write_csv(rows: list[dict[str, float]], csv_path: Path, metrics: list[str]) 
 
 def render_svg(rows: list[dict[str, float]], metrics: list[str], title: str) -> str:
     width = 1200
-    height = 720
+    panel_height = 220
+    panel_gap = 28
+    header_height = 56
+    footer_height = 56
+    height = header_height + footer_height + len(metrics) * panel_height + max(len(metrics) - 1, 0) * panel_gap
     margin_left = 80
     margin_right = 30
-    margin_top = 60
-    margin_bottom = 80
+    panel_inner_top = 34
+    panel_inner_bottom = 34
     plot_width = width - margin_left - margin_right
-    plot_height = height - margin_top - margin_bottom
 
     x_values = [row.get("training/global_step", row["step"]) for row in rows]
     x_min = min(x_values)
@@ -85,22 +88,10 @@ def render_svg(rows: list[dict[str, float]], metrics: list[str], title: str) -> 
     if x_min == x_max:
         x_max = x_min + 1.0
 
-    y_values = [row[metric] for metric in metrics for row in rows if metric in row]
-    y_min = min(y_values)
-    y_max = max(y_values)
-    if math.isclose(y_min, y_max):
-        delta = 1.0 if y_min == 0 else abs(y_min) * 0.05
-        y_min -= delta
-        y_max += delta
-
     def x_to_px(x: float) -> float:
         return margin_left + (x - x_min) / (x_max - x_min) * plot_width
 
-    def y_to_px(y: float) -> float:
-        return margin_top + plot_height - (y - y_min) / (y_max - y_min) * plot_height
-
     x_ticks = _linspace(x_min, x_max, 6)
-    y_ticks = _linspace(y_min, y_max, 6)
 
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
@@ -108,40 +99,52 @@ def render_svg(rows: list[dict[str, float]], metrics: list[str], title: str) -> 
         f'<text x="{margin_left}" y="32" font-family="sans-serif" font-size="22" font-weight="bold">{html.escape(title)}</text>',
     ]
 
-    for x_tick in x_ticks:
-        x = x_to_px(x_tick)
-        parts.append(
-            f'<line x1="{x:.2f}" y1="{margin_top}" x2="{x:.2f}" y2="{margin_top + plot_height}" stroke="#e5e7eb" stroke-width="1"/>'
-        )
-        parts.append(
-            f'<text x="{x:.2f}" y="{margin_top + plot_height + 24}" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#374151">{_fmt_tick(x_tick)}</text>'
-        )
-    for y_tick in y_ticks:
-        y = y_to_px(y_tick)
-        parts.append(
-            f'<line x1="{margin_left}" y1="{y:.2f}" x2="{margin_left + plot_width}" y2="{y:.2f}" stroke="#e5e7eb" stroke-width="1"/>'
-        )
-        parts.append(
-            f'<text x="{margin_left - 10}" y="{y + 4:.2f}" text-anchor="end" font-family="sans-serif" font-size="12" fill="#374151">{_fmt_tick(y_tick)}</text>'
-        )
-
-    parts.append(
-        f'<line x1="{margin_left}" y1="{margin_top + plot_height}" x2="{margin_left + plot_width}" y2="{margin_top + plot_height}" stroke="#111827" stroke-width="1.5"/>'
-    )
-    parts.append(
-        f'<line x1="{margin_left}" y1="{margin_top}" x2="{margin_left}" y2="{margin_top + plot_height}" stroke="#111827" stroke-width="1.5"/>'
-    )
-    parts.append(
-        f'<text x="{margin_left + plot_width / 2:.2f}" y="{height - 24}" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#111827">global step</text>'
-    )
-    parts.append(
-        f'<text x="22" y="{margin_top + plot_height / 2:.2f}" transform="rotate(-90 22 {margin_top + plot_height / 2:.2f})" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#111827">metric value</text>'
-    )
-
-    legend_y = margin_top - 8
-    legend_x = margin_left
     for idx, metric in enumerate(metrics):
         color = SERIES_COLORS[idx % len(SERIES_COLORS)]
+        panel_top = header_height + idx * (panel_height + panel_gap)
+        plot_top = panel_top + panel_inner_top
+        plot_height = panel_height - panel_inner_top - panel_inner_bottom
+        plot_bottom = plot_top + plot_height
+        y_values = [row[metric] for row in rows if metric in row]
+        y_min = min(y_values)
+        y_max = max(y_values)
+        if math.isclose(y_min, y_max):
+            delta = 1.0 if y_min == 0 else abs(y_min) * 0.05
+            y_min -= delta
+            y_max += delta
+
+        def y_to_px(y: float) -> float:
+            return plot_top + plot_height - (y - y_min) / (y_max - y_min) * plot_height
+
+        y_ticks = _linspace(y_min, y_max, 5)
+        parts.append(
+            f'<rect x="{margin_left - 20}" y="{panel_top}" width="{plot_width + 40}" height="{panel_height}" rx="12" fill="#f9fafb" stroke="#e5e7eb"/>'
+        )
+        parts.append(
+            f'<text class="panel-title" x="{margin_left}" y="{panel_top + 22}" font-family="sans-serif" font-size="14" font-weight="bold" fill="#111827">{html.escape(metric)}</text>'
+        )
+
+        for x_tick in x_ticks:
+            x = x_to_px(x_tick)
+            parts.append(
+                f'<line x1="{x:.2f}" y1="{plot_top}" x2="{x:.2f}" y2="{plot_bottom}" stroke="#eef2f7" stroke-width="1"/>'
+            )
+        for y_tick in y_ticks:
+            y = y_to_px(y_tick)
+            parts.append(
+                f'<line x1="{margin_left}" y1="{y:.2f}" x2="{margin_left + plot_width}" y2="{y:.2f}" stroke="#e5e7eb" stroke-width="1"/>'
+            )
+            parts.append(
+                f'<text x="{margin_left - 10}" y="{y + 4:.2f}" text-anchor="end" font-family="sans-serif" font-size="12" fill="#374151">{_fmt_tick(y_tick)}</text>'
+            )
+
+        parts.append(
+            f'<line x1="{margin_left}" y1="{plot_bottom}" x2="{margin_left + plot_width}" y2="{plot_bottom}" stroke="#111827" stroke-width="1.5"/>'
+        )
+        parts.append(
+            f'<line x1="{margin_left}" y1="{plot_top}" x2="{margin_left}" y2="{plot_bottom}" stroke="#111827" stroke-width="1.5"/>'
+        )
+
         metric_points = [
             (x_to_px(row.get("training/global_step", row["step"])), y_to_px(row[metric]))
             for row in rows
@@ -156,12 +159,16 @@ def render_svg(rows: list[dict[str, float]], metrics: list[str], title: str) -> 
         elif len(metric_points) == 1:
             x, y = metric_points[0]
             parts.append(f'<circle cx="{x:.2f}" cy="{y:.2f}" r="3" fill="{color}"/>')
+        if idx == len(metrics) - 1:
+            for x_tick in x_ticks:
+                x = x_to_px(x_tick)
+                parts.append(
+                    f'<text x="{x:.2f}" y="{plot_bottom + 24}" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#374151">{_fmt_tick(x_tick)}</text>'
+                )
 
-        label_x = legend_x + idx * 250
-        parts.append(f'<line x1="{label_x}" y1="{legend_y}" x2="{label_x + 24}" y2="{legend_y}" stroke="{color}" stroke-width="3"/>')
-        parts.append(
-            f'<text x="{label_x + 30}" y="{legend_y + 4}" font-family="sans-serif" font-size="12" fill="#111827">{html.escape(metric)}</text>'
-        )
+    parts.append(
+        f'<text x="{margin_left + plot_width / 2:.2f}" y="{height - 18}" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#111827">global step</text>'
+    )
 
     parts.append("</svg>")
     return "\n".join(parts)

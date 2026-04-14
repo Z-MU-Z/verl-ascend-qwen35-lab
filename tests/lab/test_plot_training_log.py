@@ -73,7 +73,35 @@ def test_plot_script_supports_explicit_metric_subset(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     svg_text = output_path.read_text()
     assert "actor/entropy" in svg_text
+    assert svg_text.count('class="panel-title"') == 1
     assert "critic/rewards/mean" not in result.stdout
+
+
+def test_plot_script_renders_one_panel_per_metric(tmp_path: Path) -> None:
+    log_path = tmp_path / "train.log"
+    output_path = tmp_path / "curve.svg"
+    log_path.write_text(
+        "\n".join(
+            [
+                "step:1 - training/global_step:1 - critic/rewards/mean:0.0 - actor/entropy:0.2",
+                "step:2 - training/global_step:2 - critic/rewards/mean:0.3 - actor/entropy:0.4",
+            ]
+        )
+        + "\n"
+    )
+
+    result = _run_plot(
+        log_path,
+        output_path,
+        "--metric",
+        "critic/rewards/mean",
+        "--metric",
+        "actor/entropy",
+    )
+
+    assert result.returncode == 0, result.stderr
+    svg_text = output_path.read_text()
+    assert svg_text.count('class="panel-title"') == 2
 
 
 def test_plot_script_fails_when_no_step_metrics_are_found(tmp_path: Path) -> None:
