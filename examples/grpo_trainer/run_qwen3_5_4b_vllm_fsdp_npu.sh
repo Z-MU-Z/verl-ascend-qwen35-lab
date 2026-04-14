@@ -25,10 +25,19 @@ if [[ ! -f "${ASCEND_ATB_ENV}" ]]; then
   exit 3
 fi
 
+_verl_restore_nounset=0
+if [[ $- == *u* ]]; then
+  _verl_restore_nounset=1
+  set +u
+fi
 # shellcheck disable=SC1091
 source "${ASCEND_TOOLKIT_ENV}"
 # shellcheck disable=SC1091
 source "${ASCEND_ATB_ENV}"
+if [[ "${_verl_restore_nounset}" == "1" ]]; then
+  set -u
+fi
+unset _verl_restore_nounset
 
 # Drop stale repo entries from previous shells so `python -m verl...` resolves
 # against the current checkout instead of a historical `/shared/...` copy.
