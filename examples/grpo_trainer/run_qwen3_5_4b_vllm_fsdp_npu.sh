@@ -124,12 +124,17 @@ mkdir -p "${CKPTS_DIR}"
 "${PYTHON_BIN}" "${ROOT_DIR}/scripts/ascend/check_qwen35_npu_env.py"
 TORCH_DEVICE_BACKEND_AUTOLOAD=0 "${PYTHON_BIN}" - <<'PY'
 import sys
+from pathlib import Path
 
 import verl
 
 print(f"Resolved verl: {verl.__file__}")
-if "/shared/zmz/code/verl-ascend-qwen35-lab" in verl.__file__:
-    raise SystemExit("Refusing to run with stale /shared repo on PYTHONPATH.")
+resolved_root = Path.cwd().resolve()
+resolved_verl = Path(verl.__file__).resolve()
+if resolved_root not in resolved_verl.parents:
+    raise SystemExit(
+        f"Refusing to run with mismatched repo import root: verl={resolved_verl}, cwd={resolved_root}"
+    )
 
 print(f"Python import root OK: {sys.executable}")
 PY

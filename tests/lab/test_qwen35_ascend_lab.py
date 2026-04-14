@@ -53,6 +53,10 @@ def test_4b_run_script_bootstraps_ascend_runtime_and_cleans_repo_pythonpath() ->
     assert 'if [[ -n "${PYTHONPATH:-}" ]]; then' in content
     assert 'verl-ascend-qwen35-lab' in content
     assert 'export PYTHONPATH="${_verl_clean_pythonpath}"' in content
+    assert "pathlib import Path" in content
+    assert "resolved_root = Path" in content
+    assert "resolved_verl = Path" in content
+    assert "resolved_verl.parents" in content
     assert 'import verl' in content
     assert 'verl.__file__' in content
 
