@@ -42,10 +42,14 @@ def test_4b_run_script_bootstraps_ascend_runtime_and_cleans_repo_pythonpath() ->
 
     assert 'ASCEND_TOOLKIT_ENV="${ASCEND_TOOLKIT_ENV:-/usr/local/Ascend/ascend-toolkit/set_env.sh}"' in content
     assert 'ASCEND_ATB_ENV="${ASCEND_ATB_ENV:-/usr/local/Ascend/nnal/atb/set_env.sh}"' in content
+    assert "_verl_restore_errexit" in content
     assert "set +u" in content
+    assert "set +e" in content
+    assert "set +o pipefail" in content
     assert "_verl_restore_nounset" in content
     assert 'source "${ASCEND_TOOLKIT_ENV}"' in content
     assert 'source "${ASCEND_ATB_ENV}"' in content
+    assert 'if [[ "${_verl_restore_errexit}" == "1" ]]; then' in content
     assert 'if [[ -n "${PYTHONPATH:-}" ]]; then' in content
     assert 'verl-ascend-qwen35-lab' in content
     assert 'export PYTHONPATH="${_verl_clean_pythonpath}"' in content

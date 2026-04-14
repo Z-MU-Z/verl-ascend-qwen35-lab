@@ -25,19 +25,37 @@ if [[ ! -f "${ASCEND_ATB_ENV}" ]]; then
   exit 3
 fi
 
+_verl_restore_errexit=0
 _verl_restore_nounset=0
+_verl_restore_pipefail=0
+if [[ $- == *e* ]]; then
+  _verl_restore_errexit=1
+  set +e
+fi
 if [[ $- == *u* ]]; then
   _verl_restore_nounset=1
   set +u
+fi
+if set -o | grep -q '^pipefail[[:space:]]\+on$'; then
+  _verl_restore_pipefail=1
+  set +o pipefail
 fi
 # shellcheck disable=SC1091
 source "${ASCEND_TOOLKIT_ENV}"
 # shellcheck disable=SC1091
 source "${ASCEND_ATB_ENV}"
+if [[ "${_verl_restore_pipefail}" == "1" ]]; then
+  set -o pipefail
+fi
 if [[ "${_verl_restore_nounset}" == "1" ]]; then
   set -u
 fi
+if [[ "${_verl_restore_errexit}" == "1" ]]; then
+  set -e
+fi
+unset _verl_restore_errexit
 unset _verl_restore_nounset
+unset _verl_restore_pipefail
 
 # Drop stale repo entries from previous shells so `python -m verl...` resolves
 # against the current checkout instead of a historical `/shared/...` copy.
