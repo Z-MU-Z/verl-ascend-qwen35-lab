@@ -5,6 +5,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 REQUIRED_ENV_PATH="/home/zmz/envs/qwen35-t29-lite"
+ASCEND_TOOLKIT_ENV="${ASCEND_TOOLKIT_ENV:-/usr/local/Ascend/ascend-toolkit/set_env.sh}"
+ASCEND_ATB_ENV="${ASCEND_ATB_ENV:-/usr/local/Ascend/nnal/atb/set_env.sh}"
 
 if [[ "${VIRTUAL_ENV:-}" != "${REQUIRED_ENV_PATH}" ]]; then
   echo "This script must run from ${REQUIRED_ENV_PATH}" >&2
@@ -13,8 +15,52 @@ if [[ "${VIRTUAL_ENV:-}" != "${REQUIRED_ENV_PATH}" ]]; then
   exit 2
 fi
 
+if [[ ! -f "${ASCEND_TOOLKIT_ENV}" ]]; then
+  echo "Missing Ascend toolkit env: ${ASCEND_TOOLKIT_ENV}" >&2
+  exit 3
+fi
+
+if [[ ! -f "${ASCEND_ATB_ENV}" ]]; then
+  echo "Missing Ascend ATB env: ${ASCEND_ATB_ENV}" >&2
+  exit 3
+fi
+
+# shellcheck disable=SC1091
+source "${ASCEND_TOOLKIT_ENV}"
+# shellcheck disable=SC1091
+source "${ASCEND_ATB_ENV}"
+
+# Drop stale repo entries from previous shells so `python -m verl...` resolves
+# against the current checkout instead of a historical `/shared/...` copy.
+if [[ -n "${PYTHONPATH:-}" ]]; then
+  _verl_clean_pythonpath=""
+  IFS=':' read -r -a _verl_pythonpath_parts <<< "${PYTHONPATH}"
+  for _verl_path in "${_verl_pythonpath_parts[@]}"; do
+    if [[ -z "${_verl_path}" ]]; then
+      continue
+    fi
+    if [[ "${_verl_path}" == *"verl-ascend-qwen35-lab"* && "${_verl_path}" != "${ROOT_DIR}" ]]; then
+      continue
+    fi
+    if [[ -z "${_verl_clean_pythonpath}" ]]; then
+      _verl_clean_pythonpath="${_verl_path}"
+    else
+      _verl_clean_pythonpath="${_verl_clean_pythonpath}:${_verl_path}"
+    fi
+  done
+  if [[ -n "${_verl_clean_pythonpath}" ]]; then
+    export PYTHONPATH="${_verl_clean_pythonpath}"
+  else
+    unset PYTHONPATH
+  fi
+fi
+unset _verl_clean_pythonpath
+unset _verl_path
+unset _verl_pythonpath_parts
+
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/scripts/ascend/env.qwen35_npu.sh"
+export PYTHONPATH="${ROOT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
 
 # Ascend: `use_remove_padding=True` can segfault in conv backward (see KNOWN_ISSUES §4).
 USE_REMOVE_PADDING="${USE_REMOVE_PADDING:-False}"
@@ -49,6 +95,17 @@ TOTAL_EPOCHS="${TOTAL_EPOCHS:-15}"
 mkdir -p "${ROOT_DIR}/logs"
 mkdir -p "${CKPTS_DIR}"
 "${PYTHON_BIN}" "${ROOT_DIR}/scripts/ascend/check_qwen35_npu_env.py"
+TORCH_DEVICE_BACKEND_AUTOLOAD=0 "${PYTHON_BIN}" - <<'PY'
+import sys
+
+import verl
+
+print(f"Resolved verl: {verl.__file__}")
+if "/shared/zmz/code/verl-ascend-qwen35-lab" in verl.__file__:
+    raise SystemExit("Refusing to run with stale /shared repo on PYTHONPATH.")
+
+print(f"Python import root OK: {sys.executable}")
+PY
 
 start_time="$(date +%Y%m%d_%H%M%S)"
 
