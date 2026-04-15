@@ -6,6 +6,7 @@ RUN_SCRIPT = ROOT / "scripts/ascend/run_qwen35_27b_npu_smoke.sh"
 RUN_4B_SCRIPT = ROOT / "examples/grpo_trainer/run_qwen3_5_4b_vllm_fsdp_npu.sh"
 ENV_SCRIPT = ROOT / "scripts/ascend/env.qwen35_npu.sh"
 CHECK_ENV_SCRIPT = ROOT / "scripts/ascend/check_qwen35_npu_env.py"
+BOOTSTRAP_37_SCRIPT = ROOT / "scripts/ascend/bootstrap_qwen35_t29_lite_clone.sh"
 ISSUES_DOC = ROOT / "docs/ascend_qwen35_lab/KNOWN_ISSUES.md"
 RUNBOOK_DOC = ROOT / "docs/ascend_qwen35_lab/RUNBOOK.md"
 TODO_DOC = ROOT / "docs/ascend_qwen35_lab/TODO.md"
@@ -145,6 +146,29 @@ def test_check_env_script_requires_t29_lite_runtime() -> None:
 
     assert 'REQUIRED_ENV_PATH = "/home/zmz/envs/qwen35-t29-lite"' in content
     assert "ERROR: active Python is not the required lab env" in content
+
+
+def test_bootstrap_37_script_targets_t29_lite_clone_with_vllm_stack() -> None:
+    content = BOOTSTRAP_37_SCRIPT.read_text()
+
+    assert 'TARGET_ENV_PATH="${TARGET_ENV_PATH:-/home/zmz/envs/qwen35-t29-lite}"' in content
+    assert 'SEED_PYTHON="${SEED_PYTHON:-/shared/envs/qwen35/bin/python}"' in content
+    assert 'ASCEND_TOOLKIT_ENV="${ASCEND_TOOLKIT_ENV:-/usr/local/Ascend/ascend-toolkit/set_env.sh}"' in content
+    assert 'ASCEND_ATB_ENV="${ASCEND_ATB_ENV:-/usr/local/Ascend/nnal/atb/set_env.sh}"' in content
+    assert 'TORCH_SPEC="${TORCH_SPEC:-torch==2.9.0}"' in content
+    assert 'TORCH_NPU_SPEC="${TORCH_NPU_SPEC:-torch-npu==2.9.0}"' in content
+    assert 'TORCHVISION_SPEC="${TORCHVISION_SPEC:-torchvision==0.24.0}"' in content
+    assert 'TRANSFORMERS_TARBALL' in content
+    assert 'VLLM_WHEEL_GLOB' in content
+    assert 'VLLM_ASCEND_TARBALL' in content
+    assert 'CATLASS_TARBALL' in content
+    assert 'requirements-npu.txt' in content
+    assert 'python -m pip install -e "${ROOT_DIR}" --no-deps' in content
+    assert 'prepare_vllm_ascend_source.py' in content
+    assert '--helper-python3 /usr/bin/python3.9' in content
+    assert '--helper-llvm-objdump /usr/local/Ascend/cann-8.5.0/tools/ccec_compiler/bin/llvm-objdump' in content
+    assert 'python -m pip install -v --no-build-isolation --no-deps "${VLLM_ASCEND_SRC_DIR}"' in content
+    assert 'python "${ROOT_DIR}/scripts/ascend/check_qwen35_npu_env.py"' in content
 
 
 def test_vllm_async_server_skips_sleep_when_sleep_mode_disabled() -> None:
