@@ -11,10 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import logging
 
 # To support different vLLM versions, we add the model into SUPPORTED_MOE_MODELS separately to avoid triggering
 # unsupported issues.
 SUPPORTED_MOE_MODELS = []
+logger = logging.getLogger(__name__)
 
 try:
     from vllm.model_executor.models.deepseek_v2 import DeepseekV2ForCausalLM, DeepseekV3ForCausalLM
@@ -95,7 +97,13 @@ def patch_vllm_ascend_gemma_rms_norm_fallback(layernorm_module=None, torch_modul
             return False
 
     ascend_ops = getattr(getattr(torch_module, "ops", None), "_C_ascend", None)
-    if ascend_ops is None or hasattr(ascend_ops, "npu_gemma_rms_norm"):
+    if ascend_ops is None:
+        return False
+
+    if hasattr(ascend_ops, "npu_gemma_rms_norm"):
+        logger.info(
+            "Skipped Ascend Gemma RMSNorm fallback: native op exists at torch.ops._C_ascend.npu_gemma_rms_norm"
+        )
         return False
 
     ascend_gemma_rms_norm = getattr(layernorm_module, "AscendGemmaRMSNorm", None)
@@ -104,6 +112,7 @@ def patch_vllm_ascend_gemma_rms_norm_fallback(layernorm_module=None, torch_modul
 
     original_forward = ascend_gemma_rms_norm.forward_oot
     if getattr(original_forward, "_verl_npu_gemma_fallback", False):
+        logger.info("Ascend Gemma RMSNorm fallback already active")
         return True
 
     def forward_oot_with_fallback(self, x, residual=None):
@@ -114,6 +123,10 @@ def patch_vllm_ascend_gemma_rms_norm_fallback(layernorm_module=None, torch_modul
 
     forward_oot_with_fallback._verl_npu_gemma_fallback = True
     ascend_gemma_rms_norm.forward_oot = forward_oot_with_fallback
+    logger.info(
+        "Applied Ascend Gemma RMSNorm fallback: torch.ops._C_ascend.npu_gemma_rms_norm is missing; "
+        "using torch_npu.npu_rms_norm instead"
+    )
     return True
 
 
@@ -194,10 +207,18 @@ def patch_vllm_ascend_causal_conv1d_fallback(torch_module=None, causal_conv1d_mo
             return False
 
     ascend_ops = getattr(getattr(torch_module, "ops", None), "_C_ascend", None)
-    if ascend_ops is None or hasattr(ascend_ops, "npu_causal_conv1d_custom"):
+    if ascend_ops is None:
+        return False
+
+    if hasattr(ascend_ops, "npu_causal_conv1d_custom"):
+        logger.info(
+            "Skipped Ascend causal_conv1d fallback: native op exists at "
+            "torch.ops._C_ascend.npu_causal_conv1d_custom"
+        )
         return False
 
     if getattr(ascend_ops, "_verl_npu_causal_conv1d_fallback", False):
+        logger.info("Ascend causal_conv1d fallback already active")
         return True
 
     if fallback_runner is None:
@@ -262,6 +283,10 @@ def patch_vllm_ascend_causal_conv1d_fallback(torch_module=None, causal_conv1d_mo
     npu_causal_conv1d_custom_fallback._verl_npu_causal_conv1d_fallback = True
     setattr(ascend_ops, "npu_causal_conv1d_custom", npu_causal_conv1d_custom_fallback)
     setattr(ascend_ops, "_verl_npu_causal_conv1d_fallback", True)
+    logger.info(
+        "Applied Ascend causal_conv1d fallback: torch.ops._C_ascend.npu_causal_conv1d_custom is missing; "
+        "using Python reference fallback instead"
+    )
     return True
 
 

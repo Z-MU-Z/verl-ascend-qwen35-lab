@@ -1,4 +1,5 @@
 import importlib.util
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -124,6 +125,58 @@ def test_patch_vllm_ascend_gemma_rms_norm_fallback_skips_when_op_exists():
     assert FakeAscendGemmaRMSNorm.forward_oot is original_forward
 
 
+def test_patch_vllm_ascend_gemma_rms_norm_fallback_logs_when_enabled(caplog):
+    patch_module = _load_patch_module()
+
+    class FakeAscendGemmaRMSNorm:
+        def __init__(self):
+            self.weight = FakeWeight("weight")
+            self.variance_epsilon = 1e-6
+
+        def forward_oot(self, x, residual=None):
+            return ("original", x, residual)
+
+    fake_layernorm_module = SimpleNamespace(AscendGemmaRMSNorm=FakeAscendGemmaRMSNorm)
+    fake_torch_module = SimpleNamespace(ops=SimpleNamespace(_C_ascend=SimpleNamespace()))
+    fake_torch_npu_module = SimpleNamespace(npu_rms_norm=lambda *args, **kwargs: (FakeTensor("norm_out"), None))
+
+    with caplog.at_level(logging.INFO):
+        patched = patch_module.patch_vllm_ascend_gemma_rms_norm_fallback(
+            layernorm_module=fake_layernorm_module,
+            torch_module=fake_torch_module,
+            torch_npu_module=fake_torch_npu_module,
+        )
+
+    assert patched is True
+    assert "Applied Ascend Gemma RMSNorm fallback" in caplog.text
+    assert "npu_gemma_rms_norm" in caplog.text
+
+
+def test_patch_vllm_ascend_gemma_rms_norm_fallback_logs_when_native_op_exists(caplog):
+    patch_module = _load_patch_module()
+
+    class FakeAscendGemmaRMSNorm:
+        def forward_oot(self, x, residual=None):
+            return ("original", x, residual)
+
+    fake_layernorm_module = SimpleNamespace(AscendGemmaRMSNorm=FakeAscendGemmaRMSNorm)
+    fake_torch_module = SimpleNamespace(
+        ops=SimpleNamespace(_C_ascend=SimpleNamespace(npu_gemma_rms_norm=object()))
+    )
+    fake_torch_npu_module = SimpleNamespace()
+
+    with caplog.at_level(logging.INFO):
+        patched = patch_module.patch_vllm_ascend_gemma_rms_norm_fallback(
+            layernorm_module=fake_layernorm_module,
+            torch_module=fake_torch_module,
+            torch_npu_module=fake_torch_npu_module,
+        )
+
+    assert patched is False
+    assert "Skipped Ascend Gemma RMSNorm fallback" in caplog.text
+    assert "native op exists" in caplog.text
+
+
 def test_patch_vllm_ascend_custom_op_disable_primes_cached_flag():
     patch_module = _load_patch_module()
     fake_utils_module = SimpleNamespace(_CUSTOM_OP_ENABLED=None)
@@ -233,6 +286,44 @@ def test_patch_vllm_ascend_causal_conv1d_fallback_skips_when_op_exists():
 
     assert patched is False
     assert fake_torch_module.ops._C_ascend.npu_causal_conv1d_custom is original
+
+
+def test_patch_vllm_ascend_causal_conv1d_fallback_logs_when_enabled(caplog):
+    patch_module = _load_patch_module()
+    fake_torch_module = SimpleNamespace(
+        bool="bool_dtype",
+        int32="int32_dtype",
+        ops=SimpleNamespace(_C_ascend=SimpleNamespace()),
+    )
+    fake_torch_module.tensor = lambda *args, **kwargs: None
+
+    with caplog.at_level(logging.INFO):
+        patched = patch_module.patch_vllm_ascend_causal_conv1d_fallback(
+            torch_module=fake_torch_module,
+            fallback_runner=lambda *args, **kwargs: "fallback-output",
+        )
+
+    assert patched is True
+    assert "Applied Ascend causal_conv1d fallback" in caplog.text
+    assert "npu_causal_conv1d_custom" in caplog.text
+
+
+def test_patch_vllm_ascend_causal_conv1d_fallback_logs_when_native_op_exists(caplog):
+    patch_module = _load_patch_module()
+    original = object()
+    fake_torch_module = SimpleNamespace(
+        ops=SimpleNamespace(_C_ascend=SimpleNamespace(npu_causal_conv1d_custom=original))
+    )
+
+    with caplog.at_level(logging.INFO):
+        patched = patch_module.patch_vllm_ascend_causal_conv1d_fallback(
+            torch_module=fake_torch_module,
+            fallback_runner=lambda *args, **kwargs: None,
+        )
+
+    assert patched is False
+    assert "Skipped Ascend causal_conv1d fallback" in caplog.text
+    assert "native op exists" in caplog.text
 
 
 class FakeTransposeTensor:
