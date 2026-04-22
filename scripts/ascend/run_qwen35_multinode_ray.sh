@@ -255,7 +255,7 @@ outer_log="${LOG_DIR}/${session_name}.outer.log"
 
 network_env_cmd="
 if [[ -z \"\${SOCKET_IFNAME:-}\" ]]; then
-  SOCKET_IFNAME=\"\$(awk '\$2 == \\\"00000000\\\" && \$1 != \\\"lo\\\" { print \$1; exit }' /proc/net/route)\"
+  SOCKET_IFNAME=\"\$(awk '\$2 == \"00000000\" && \$1 != \"lo\" { print \$1; exit }' /proc/net/route)\"
 fi
 if [[ -z \"\${SOCKET_IFNAME:-}\" ]]; then
   SOCKET_IFNAME=\"\$(ls /sys/class/net | grep -Ev '^(lo|docker.*|veth.*|virbr.*)$' | head -n 1)\"
