@@ -45,6 +45,7 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
         remote_container_state: str,
         *,
         local_probe_state: str = "running",
+        socket_ifname: str | None = None,
         expect_success: bool = True,
     ) -> tuple[int, str, str, list[str]]:
         with tempfile.TemporaryDirectory() as td:
@@ -214,6 +215,8 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
                 "PYTHONNOUSERSITE": "1",
                 "LOG_DIR": str(tmp_path / "logs"),
             }
+            if socket_ifname is not None:
+                env["SOCKET_IFNAME"] = socket_ifname
             remote = "trainer@n1.example"
             r = subprocess.run(
                 ["bash", str(launcher), "--remote-ssh", remote],
@@ -267,14 +270,19 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
             msg="launcher should not disable strict host key checking",
         )
         self.assertTrue(
-            "docker: exec qwen3.5-xpoints bash -lc \nset -euo pipefail\nray stop --force" in joined
-            and "ray start --head" in joined,
+            "docker: exec qwen3.5-xpoints bash -lc " in joined and "ray start --head" in joined,
             msg="expected local ray head startup in container",
         )
         self.assertTrue(
             "ssh: -o BatchMode=yes trainer@n1.example sudo -n docker exec qwen3.5-xpoints bash -lc" in joined
             and "ray start --address=" in joined,
             msg="expected remote ray worker startup in container",
+        )
+        self.assertTrue(
+            '--resources=\'{"NPU": 8}\'' in joined
+            or '--resources="{\\"NPU\\": 8}"' in joined
+            or '--resources=\\\'{"NPU": 8}\\\'' in joined,
+            msg="expected explicit NPU resource registration for Ray worker",
         )
         self.assertTrue(
             "run_qwen3_5_4b_vllm_fsdp_npu_container_clean.sh" in joined,
@@ -289,6 +297,15 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
         for i, line in enumerate(lines):
             if line.startswith(prefix):
                 return i
+        return -1
+
+    @staticmethod
+    def _find_command_block_start(lines: list[str], prefix: str, needle: str) -> int:
+        for i, line in enumerate(lines):
+            if line.startswith(prefix):
+                window = "\n".join(lines[i : i + 12])
+                if needle in window:
+                    return i
         return -1
 
     def test_bootstrap_runs_when_remote_container_is_missing(self) -> None:
@@ -315,6 +332,14 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
     def test_remote_probe_ignores_login_banner(self) -> None:
         _, _, _, lines = self._run_launcher(remote_container_state="bannered_running")
         self._assert_common_launcher_behavior(lines)
+
+    def test_exports_socket_ifname_family_when_provided(self) -> None:
+        _, _, _, lines = self._run_launcher(remote_container_state="running", socket_ifname="enp189s0f0")
+        joined = "\n".join(lines)
+        self.assertIn("export SOCKET_IFNAME='enp189s0f0'", joined)
+        self.assertIn('export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-${SOCKET_IFNAME}}"', joined)
+        self.assertIn('export HCCL_SOCKET_IFNAME="${HCCL_SOCKET_IFNAME:-${SOCKET_IFNAME}}"', joined)
+        self.assertIn('export NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME:-${SOCKET_IFNAME}}"', joined)
 
     def test_exits_before_ray_when_local_head_container_is_not_running(self) -> None:
         code, out, err, lines = self._run_launcher(
@@ -432,24 +457,14 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
         bootstrap (if any) must run before Ray and training stages.
         """
         _, _, _, lines = self._run_launcher(remote_container_state="missing")
-        i_docker = self._first_index_startswith(lines, "docker: ")
-        i_ssh = self._first_index_startswith(lines, "ssh: ")
-        i_bootstrap = self._first_index_startswith(lines, "bootstrap: ")
-        i_python = self._first_index_startswith(lines, "python3: -")
-        i_local_head = -1
-        i_remote_worker = -1
-        i_train = -1
-        for i, line in enumerate(lines):
-            if line.startswith("docker: ") and "bash -lc " in line and i_local_head < 0:
-                if i + 3 < len(lines) and "ray start --head" in lines[i + 3]:
-                    i_local_head = i
-            if line.startswith("ssh: ") and "docker exec" in line:
-                if "ray start --address=" in line:
-                    i_remote_worker = i
-                elif i + 3 < len(lines) and "ray start --address=" in lines[i + 3]:
-                    i_remote_worker = i
-            if "run_qwen3_5_4b_vllm_fsdp_npu_container_clean.sh" in line:
-                i_train = i
+        joined = "\n".join(lines)
+        i_docker = joined.find("docker: container inspect --format")
+        i_ssh = joined.find("ssh: -o BatchMode=yes")
+        i_bootstrap = joined.find("bootstrap:")
+        i_python = joined.find("python3: -")
+        i_local_head = joined.find("ray start --head")
+        i_remote_worker = joined.find("ray start --address=")
+        i_train = joined.find("run_qwen3_5_4b_vllm_fsdp_npu_container_clean.sh' trainer.nnodes='2'")
 
         self.assertGreaterEqual(i_docker, 0)
         self.assertGreater(i_ssh, i_docker)

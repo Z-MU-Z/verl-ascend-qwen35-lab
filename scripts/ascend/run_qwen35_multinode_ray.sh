@@ -17,6 +17,8 @@ HEAD_RAY_PORT="${HEAD_RAY_PORT:-6379}"
 HEAD_DASHBOARD_PORT="${HEAD_DASHBOARD_PORT:-8265}"
 NUM_NODES="${NUM_NODES:-2}"
 NUM_GPUS_PER_NODE="${NUM_GPUS_PER_NODE:-8}"
+NUM_NPUS_PER_NODE="${NUM_NPUS_PER_NODE:-${NUM_GPUS_PER_NODE}}"
+SOCKET_IFNAME="${SOCKET_IFNAME:-}"
 
 FREEZE_VISION_TOWER="${FREEZE_VISION_TOWER:-True}"
 ENABLE_SLEEP_MODE="${ENABLE_SLEEP_MODE:-False}"
@@ -251,16 +253,36 @@ fi
 session_name="qwen35_multinode_$(date +%Y%m%d_%H%M%S)"
 outer_log="${LOG_DIR}/${session_name}.outer.log"
 
+network_env_cmd="
+if [[ -z \"\${SOCKET_IFNAME:-}\" ]]; then
+  SOCKET_IFNAME=\"\$(awk '\$2 == \\\"00000000\\\" && \$1 != \\\"lo\\\" { print \$1; exit }' /proc/net/route)\"
+fi
+if [[ -z \"\${SOCKET_IFNAME:-}\" ]]; then
+  SOCKET_IFNAME=\"\$(ls /sys/class/net | grep -Ev '^(lo|docker.*|veth.*|virbr.*)$' | head -n 1)\"
+fi
+if [[ -z \"\${SOCKET_IFNAME:-}\" ]]; then
+  echo 'error: failed to determine SOCKET_IFNAME inside container' >&2
+  exit 1
+fi
+export SOCKET_IFNAME='${SOCKET_IFNAME}'
+export GLOO_SOCKET_IFNAME=\"\${GLOO_SOCKET_IFNAME:-\${SOCKET_IFNAME}}\"
+export HCCL_SOCKET_IFNAME=\"\${HCCL_SOCKET_IFNAME:-\${SOCKET_IFNAME}}\"
+export NCCL_SOCKET_IFNAME=\"\${NCCL_SOCKET_IFNAME:-\${SOCKET_IFNAME}}\"
+export TP_SOCKET_IFNAME=\"\${TP_SOCKET_IFNAME:-\${SOCKET_IFNAME}}\"
+"
+
 local_ray_head_cmd="
 set -euo pipefail
+${network_env_cmd}
 ray stop --force >/dev/null 2>&1 || true
 ray start --head --node-ip-address='${HEAD_IP}' --port='${HEAD_RAY_PORT}' --dashboard-host='0.0.0.0' --dashboard-port='${HEAD_DASHBOARD_PORT}' --num-gpus='${NUM_GPUS_PER_NODE}' --disable-usage-stats
 "
 
 remote_ray_worker_cmd="
 set -euo pipefail
+${network_env_cmd}
 ray stop --force >/dev/null 2>&1 || true
-ray start --address='${HEAD_IP}:${HEAD_RAY_PORT}' --num-gpus='${NUM_GPUS_PER_NODE}' --disable-usage-stats
+ray start --address='${HEAD_IP}:${HEAD_RAY_PORT}' --num-gpus='${NUM_GPUS_PER_NODE}' --resources='{\"NPU\": ${NUM_NPUS_PER_NODE}}' --disable-usage-stats
 "
 
 container_bash_local "${local_ray_head_cmd}"
@@ -269,6 +291,7 @@ container_bash_remote "${remote_ray_worker_cmd}"
 train_cmd="
 set -euo pipefail
 cd '${XPOINTS_ROOT}'
+${network_env_cmd}
 export VERL_ROOT='${XPOINTS_ROOT}'
 export PYTHONPATH='${VLLM_ROOT}:${VLLM_ASCEND_ROOT}:'\"\${PYTHONPATH:-}\"
 export RAY_ADDRESS='auto'
