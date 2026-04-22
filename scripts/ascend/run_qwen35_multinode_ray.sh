@@ -19,6 +19,8 @@ NUM_NODES="${NUM_NODES:-2}"
 NUM_GPUS_PER_NODE="${NUM_GPUS_PER_NODE:-8}"
 NUM_NPUS_PER_NODE="${NUM_NPUS_PER_NODE:-${NUM_GPUS_PER_NODE}}"
 SOCKET_IFNAME="${SOCKET_IFNAME:-}"
+LOCAL_SOCKET_IFNAME="${LOCAL_SOCKET_IFNAME:-}"
+REMOTE_SOCKET_IFNAME="${REMOTE_SOCKET_IFNAME:-}"
 
 FREEZE_VISION_TOWER="${FREEZE_VISION_TOWER:-True}"
 ENABLE_SLEEP_MODE="${ENABLE_SLEEP_MODE:-False}"
@@ -168,6 +170,46 @@ finally:
 PY
 }
 
+detect_remote_node_ip() {
+  local remote_host="$1"
+  python3 - "$remote_host" <<'PY'
+import socket
+import sys
+
+print(socket.gethostbyname(sys.argv[1]))
+PY
+}
+
+detect_container_socket_ifname_local() {
+  container_bash_local "
+set -euo pipefail
+iface=\"\$(awk '\$2 == \"00000000\" && \$1 != \"lo\" { print \$1; exit }' /proc/net/route)\"
+if [[ -z \"\${iface:-}\" ]]; then
+  iface=\"\$(ls /sys/class/net | grep -Ev '^(lo|docker.*|veth.*|virbr.*)$' | head -n 1)\"
+fi
+if [[ -z \"\${iface:-}\" ]]; then
+  echo 'error: failed to determine local SOCKET_IFNAME inside container' >&2
+  exit 1
+fi
+printf '%s\n' \"\$iface\"
+"
+}
+
+detect_container_socket_ifname_remote() {
+  container_bash_remote "
+set -euo pipefail
+iface=\"\$(awk '\$2 == \"00000000\" && \$1 != \"lo\" { print \$1; exit }' /proc/net/route)\"
+if [[ -z \"\${iface:-}\" ]]; then
+  iface=\"\$(ls /sys/class/net | grep -Ev '^(lo|docker.*|veth.*|virbr.*)$' | head -n 1)\"
+fi
+if [[ -z \"\${iface:-}\" ]]; then
+  echo 'error: failed to determine remote SOCKET_IFNAME inside container' >&2
+  exit 1
+fi
+printf '%s\n' \"\$iface\"
+"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --remote-ssh)
@@ -244,43 +286,58 @@ fi
 
 remote_host="${REMOTE_SSH##*@}"
 HEAD_IP="${HEAD_IP:-$(detect_head_ip "${remote_host}")}"
+REMOTE_NODE_IP="${REMOTE_NODE_IP:-$(detect_remote_node_ip "${remote_host}")}"
 
 if [[ -z "${HEAD_IP}" ]]; then
   echo "error: failed to determine head IP for remote host '${remote_host}'" >&2
   exit 1
 fi
 
+if [[ -z "${REMOTE_NODE_IP}" ]]; then
+  echo "error: failed to determine remote node IP for host '${remote_host}'" >&2
+  exit 1
+fi
+
+if [[ -n "${SOCKET_IFNAME}" && -z "${LOCAL_SOCKET_IFNAME}" ]]; then
+  LOCAL_SOCKET_IFNAME="${SOCKET_IFNAME}"
+fi
+
+if [[ -z "${LOCAL_SOCKET_IFNAME}" ]]; then
+  LOCAL_SOCKET_IFNAME="$(detect_container_socket_ifname_local)"
+fi
+
+if [[ -z "${REMOTE_SOCKET_IFNAME}" ]]; then
+  REMOTE_SOCKET_IFNAME="$(detect_container_socket_ifname_remote)"
+fi
+
 session_name="qwen35_multinode_$(date +%Y%m%d_%H%M%S)"
 outer_log="${LOG_DIR}/${session_name}.outer.log"
 
-network_env_cmd="
-if [[ -z \"\${SOCKET_IFNAME:-}\" ]]; then
-  SOCKET_IFNAME=\"\$(awk '\$2 == \"00000000\" && \$1 != \"lo\" { print \$1; exit }' /proc/net/route)\"
-fi
-if [[ -z \"\${SOCKET_IFNAME:-}\" ]]; then
-  SOCKET_IFNAME=\"\$(ls /sys/class/net | grep -Ev '^(lo|docker.*|veth.*|virbr.*)$' | head -n 1)\"
-fi
-if [[ -z \"\${SOCKET_IFNAME:-}\" ]]; then
-  echo 'error: failed to determine SOCKET_IFNAME inside container' >&2
-  exit 1
-fi
-export SOCKET_IFNAME='${SOCKET_IFNAME}'
+build_network_env_cmd() {
+  local socket_ifname="$1"
+  cat <<EOF
+export SOCKET_IFNAME='${socket_ifname}'
 export GLOO_SOCKET_IFNAME=\"\${GLOO_SOCKET_IFNAME:-\${SOCKET_IFNAME}}\"
 export HCCL_SOCKET_IFNAME=\"\${HCCL_SOCKET_IFNAME:-\${SOCKET_IFNAME}}\"
 export NCCL_SOCKET_IFNAME=\"\${NCCL_SOCKET_IFNAME:-\${SOCKET_IFNAME}}\"
 export TP_SOCKET_IFNAME=\"\${TP_SOCKET_IFNAME:-\${SOCKET_IFNAME}}\"
-"
+EOF
+}
+
+local_network_env_cmd="$(build_network_env_cmd "${LOCAL_SOCKET_IFNAME}")"
+remote_network_env_cmd="$(build_network_env_cmd "${REMOTE_SOCKET_IFNAME}")"
+socket_ifname_map="${HEAD_IP}=${LOCAL_SOCKET_IFNAME},${REMOTE_NODE_IP}=${REMOTE_SOCKET_IFNAME}"
 
 local_ray_head_cmd="
 set -euo pipefail
-${network_env_cmd}
+${local_network_env_cmd}
 ray stop --force >/dev/null 2>&1 || true
 ray start --head --node-ip-address='${HEAD_IP}' --port='${HEAD_RAY_PORT}' --dashboard-host='0.0.0.0' --dashboard-port='${HEAD_DASHBOARD_PORT}' --num-gpus='${NUM_GPUS_PER_NODE}' --disable-usage-stats
 "
 
 remote_ray_worker_cmd="
 set -euo pipefail
-${network_env_cmd}
+${remote_network_env_cmd}
 ray stop --force >/dev/null 2>&1 || true
 ray start --address='${HEAD_IP}:${HEAD_RAY_PORT}' --num-gpus='${NUM_GPUS_PER_NODE}' --resources='{\"NPU\": ${NUM_NPUS_PER_NODE}}' --disable-usage-stats
 "
@@ -291,10 +348,11 @@ container_bash_remote "${remote_ray_worker_cmd}"
 train_cmd="
 set -euo pipefail
 cd '${XPOINTS_ROOT}'
-${network_env_cmd}
+${local_network_env_cmd}
 export VERL_ROOT='${XPOINTS_ROOT}'
 export PYTHONPATH='${VLLM_ROOT}:${VLLM_ASCEND_ROOT}:'\"\${PYTHONPATH:-}\"
 export RAY_ADDRESS='auto'
+export VERL_SOCKET_IFNAME_MAP='${socket_ifname_map}'
 export FREEZE_VISION_TOWER='${FREEZE_VISION_TOWER}'
 export ENABLE_SLEEP_MODE='${ENABLE_SLEEP_MODE}'
 export FREE_CACHE_ENGINE='${FREE_CACHE_ENGINE}'
@@ -308,6 +366,9 @@ echo "Multinode launcher"
 echo "  Remote SSH: ${REMOTE_SSH}"
 echo "  Container: ${CONTAINER_NAME}"
 echo "  Head IP: ${HEAD_IP}"
+echo "  Local socket ifname: ${LOCAL_SOCKET_IFNAME}"
+echo "  Remote node IP: ${REMOTE_NODE_IP}"
+echo "  Remote socket ifname: ${REMOTE_SOCKET_IFNAME}"
 echo "  Ray head: ${HEAD_IP}:${HEAD_RAY_PORT}"
 echo "  Train script: ${TRAIN_SCRIPT}"
 echo "  Outer log: ${outer_log}"

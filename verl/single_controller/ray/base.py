@@ -94,6 +94,30 @@ def sort_placement_group_by_node_ip(pgs: list[PlacementGroup]) -> list[Placement
     return sorted(pgs, key=lambda pg: pg_ip[pg.id])
 
 
+def get_placement_group_node_ip(pg: PlacementGroup) -> str:
+    node_ip = {node["NodeID"]: node["NodeManagerAddress"] for node in ray.nodes()}
+    specs = ray._private.state.state.placement_group_table(pg.id)
+    node_id = specs["bundles_to_node_id"][0]
+    return node_ip[node_id]
+
+
+def parse_socket_ifname_map(raw_value: Optional[str]) -> dict[str, str]:
+    if not raw_value:
+        return {}
+
+    mapping = {}
+    for item in raw_value.split(","):
+        item = item.strip()
+        if not item or "=" not in item:
+            continue
+        node_ip, socket_ifname = item.split("=", 1)
+        node_ip = node_ip.strip()
+        socket_ifname = socket_ifname.strip()
+        if node_ip and socket_ifname:
+            mapping[node_ip] = socket_ifname
+    return mapping
+
+
 @ray.remote
 def get_master_addr_port(master_port_range: Optional[list[int]] = None) -> tuple[str, str]:
     addr = ray.util.get_node_ip_address().strip("[]")
@@ -639,10 +663,16 @@ class RayWorkerGroup(WorkerGroup):
             "MASTER_ADDR": self._master_addr,
             "MASTER_PORT": self._master_port,
         }
-        for key in NETWORK_ENV_KEYS:
-            value = os.environ.get(key)
-            if value:
-                env_vars[key] = value
+        socket_ifname_map = parse_socket_ifname_map(os.environ.get("VERL_SOCKET_IFNAME_MAP"))
+        worker_node_ip = get_placement_group_node_ip(pg)
+        if worker_node_ip in socket_ifname_map:
+            socket_ifname = socket_ifname_map[worker_node_ip]
+            env_vars.update({key: socket_ifname for key in NETWORK_ENV_KEYS})
+        else:
+            for key in NETWORK_ENV_KEYS:
+                value = os.environ.get(key)
+                if value:
+                    env_vars[key] = value
         if worker_env is not None:
             logging.debug(f"Appending ray class env, origin: {env_vars}, customized env: {worker_env}")
             conflict_env_vars = set(env_vars.keys()) & set(worker_env.keys())

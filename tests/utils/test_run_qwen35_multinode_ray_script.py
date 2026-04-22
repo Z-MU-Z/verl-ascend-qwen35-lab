@@ -46,6 +46,8 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
         *,
         local_probe_state: str = "running",
         socket_ifname: str | None = None,
+        local_socket_ifname: str = "eth-local0",
+        remote_socket_ifname: str = "eth-remote0",
         expect_success: bool = True,
     ) -> tuple[int, str, str, list[str]]:
         with tempfile.TemporaryDirectory() as td:
@@ -156,6 +158,10 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
                         fi
                         exit {local_probe_exit}
                         ;;
+                      *"/proc/net/route"*|*"ls /sys/class/net"*)
+                        printf '%s\\n' "{local_socket_ifname}"
+                        exit 0
+                        ;;
                     esac
                     exit 0
                     """
@@ -185,6 +191,10 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
                           printf '%s\\n' "{remote_probe_stderr}" >&2
                         fi
                         exit {remote_probe_exit}
+                        ;;
+                      *"/proc/net/route"*|*"ls /sys/class/net"*)
+                        printf '%s\\n' "{remote_socket_ifname}"
+                        exit 0
                         ;;
                       *)
                         exit 0
@@ -314,7 +324,7 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
 
         ssh_lines = [line for line in lines if line.startswith("ssh: ")]
         bootstrap_lines = [line for line in lines if line.startswith("bootstrap: ")]
-        self.assertEqual(len(ssh_lines), 4)
+        self.assertEqual(len(ssh_lines), 5)
         self.assertEqual(len(bootstrap_lines), 1)
         self.assertIn("REMOTE_HOST=n1.example", bootstrap_lines[0])
         self.assertIn("REMOTE_USER=trainer", bootstrap_lines[0])
@@ -326,7 +336,7 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
 
         ssh_lines = [line for line in lines if line.startswith("ssh: ")]
         bootstrap_lines = [line for line in lines if line.startswith("bootstrap: ")]
-        self.assertEqual(len(ssh_lines), 4)
+        self.assertEqual(len(ssh_lines), 5)
         self.assertEqual(bootstrap_lines, [])
 
     def test_remote_probe_ignores_login_banner(self) -> None:
@@ -334,12 +344,19 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
         self._assert_common_launcher_behavior(lines)
 
     def test_exports_socket_ifname_family_when_provided(self) -> None:
-        _, _, _, lines = self._run_launcher(remote_container_state="running", socket_ifname="enp189s0f0")
+        _, _, _, lines = self._run_launcher(
+            remote_container_state="running",
+            socket_ifname="enp189s0f0",
+            remote_socket_ifname="enp61s0f0",
+        )
         joined = "\n".join(lines)
         self.assertIn("export SOCKET_IFNAME='enp189s0f0'", joined)
-        self.assertIn('export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-${SOCKET_IFNAME}}"', joined)
-        self.assertIn('export HCCL_SOCKET_IFNAME="${HCCL_SOCKET_IFNAME:-${SOCKET_IFNAME}}"', joined)
-        self.assertIn('export NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME:-${SOCKET_IFNAME}}"', joined)
+        self.assertIn('export GLOO_SOCKET_IFNAME=\\"${GLOO_SOCKET_IFNAME:-${SOCKET_IFNAME}}\\"', joined)
+        self.assertIn('export HCCL_SOCKET_IFNAME=\\"${HCCL_SOCKET_IFNAME:-${SOCKET_IFNAME}}\\"', joined)
+        self.assertIn('export NCCL_SOCKET_IFNAME=\\"${NCCL_SOCKET_IFNAME:-${SOCKET_IFNAME}}\\"', joined)
+        self.assertIn("export VERL_SOCKET_IFNAME_MAP='", joined)
+        self.assertIn("enp189s0f0", joined)
+        self.assertIn("enp61s0f0", joined)
 
     def test_exits_before_ray_when_local_head_container_is_not_running(self) -> None:
         code, out, err, lines = self._run_launcher(
@@ -406,7 +423,7 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
 
         ssh_lines = [line for line in lines if line.startswith("ssh: ")]
         bootstrap_lines = [line for line in lines if line.startswith("bootstrap: ")]
-        self.assertEqual(len(ssh_lines), 4)
+        self.assertEqual(len(ssh_lines), 5)
         self.assertEqual(len(bootstrap_lines), 1)
 
     def test_remote_probe_failure_exits_before_bootstrap_and_ray(self) -> None:
