@@ -23,9 +23,9 @@ from pathlib import Path
 
 BOOTSTRAP_BASENAME = "bootstrap_remote_qwen35_xpoints_container.sh"
 CONTAINER_NAME = "qwen3.5-xpoints"
-INSPECT_FORMAT = "{{.Name}}\t{{.State.Running}}"
-INSPECT_RUNNING = f"/{CONTAINER_NAME}\ttrue"
-INSPECT_STOPPED = f"/{CONTAINER_NAME}\tfalse"
+INSPECT_FORMAT = "{{.Name}}|{{.State.Running}}"
+INSPECT_RUNNING = f"/{CONTAINER_NAME}|true"
+INSPECT_STOPPED = f"/{CONTAINER_NAME}|false"
 
 
 def _write_fake_bin(path: Path, content: str) -> None:
@@ -68,7 +68,7 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
                 remote_probe_stderr = f"Error: No such container: {CONTAINER_NAME}"
                 remote_probe_exit = 1
             elif remote_container_state == "wrong_identity":
-                remote_probe_stdout = "/unexpected-container\ttrue"
+                remote_probe_stdout = "/unexpected-container|true"
                 remote_probe_stderr = ""
                 remote_probe_exit = 0
             elif remote_container_state == "malformed":
@@ -79,6 +79,10 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
                 remote_probe_stdout = ""
                 remote_probe_stderr = "ssh: connection failed"
                 remote_probe_exit = 255
+            elif remote_container_state == "bannered_running":
+                remote_probe_stdout = f"Authorized users only. All activities may be monitored and reported.\n{INSPECT_RUNNING}"
+                remote_probe_stderr = ""
+                remote_probe_exit = 0
             else:
                 raise ValueError(f"unsupported remote_container_state: {remote_container_state}")
             if local_probe_state == "running":
@@ -94,7 +98,7 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
                 local_probe_stderr = f"Error: No such container: {CONTAINER_NAME}"
                 local_probe_exit = 1
             elif local_probe_state == "wrong_identity":
-                local_probe_stdout = "/unexpected-container\ttrue"
+                local_probe_stdout = "/unexpected-container|true"
                 local_probe_stderr = ""
                 local_probe_exit = 0
             elif local_probe_state == "probe_failure":
@@ -251,6 +255,13 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
                 for line in ssh_lines
             )
         )
+        self.assertTrue(
+            any(
+                line.startswith("ssh: ") and "sudo -n docker" in line
+                for line in ssh_lines
+            ),
+            msg="expected remote docker access via sudo -n docker",
+        )
         self.assertFalse(
             any("StrictHostKeyChecking=no" in line for line in ssh_lines),
             msg="launcher should not disable strict host key checking",
@@ -261,7 +272,7 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
             msg="expected local ray head startup in container",
         )
         self.assertTrue(
-            "ssh: -o BatchMode=yes trainer@n1.example docker exec qwen3.5-xpoints bash -lc" in joined
+            "ssh: -o BatchMode=yes trainer@n1.example sudo -n docker exec qwen3.5-xpoints bash -lc" in joined
             and "ray start --address=" in joined,
             msg="expected remote ray worker startup in container",
         )
@@ -300,6 +311,10 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
         bootstrap_lines = [line for line in lines if line.startswith("bootstrap: ")]
         self.assertEqual(len(ssh_lines), 4)
         self.assertEqual(bootstrap_lines, [])
+
+    def test_remote_probe_ignores_login_banner(self) -> None:
+        _, _, _, lines = self._run_launcher(remote_container_state="bannered_running")
+        self._assert_common_launcher_behavior(lines)
 
     def test_exits_before_ray_when_local_head_container_is_not_running(self) -> None:
         code, out, err, lines = self._run_launcher(

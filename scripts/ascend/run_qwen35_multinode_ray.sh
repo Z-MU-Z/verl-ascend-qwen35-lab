@@ -5,7 +5,7 @@ set -euo pipefail
 REMOTE_SSH=""
 BOOTSTRAP_BASENAME="bootstrap_remote_qwen35_xpoints_container.sh"
 CONTAINER_NAME="${CONTAINER_NAME:-qwen3.5-xpoints}"
-INSPECT_FORMAT='{{.Name}}{{printf "\t"}}{{.State.Running}}'
+INSPECT_FORMAT='{{.Name}}|{{.State.Running}}'
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 SUDO_BIN="${SUDO_BIN:-sudo}"
 XPOINTS_ROOT="${XPOINTS_ROOT:-/shared/zmz/code2/XPoints}"
@@ -65,11 +65,14 @@ is_exact_missing_container_error() {
 parse_container_probe_output() {
   local location="$1"
   local probe_output="$2"
+  local normalized_output=""
   local container_name=""
   local running_state=""
 
-  IFS=$'\t' read -r container_name running_state <<< "${probe_output}"
-  running_state="${running_state//[$'\t\r\n ']}"
+  normalized_output="$(printf '%s\n' "${probe_output}" | awk 'NF { line=$0 } END { print line }')"
+
+  IFS='|' read -r container_name running_state <<< "${normalized_output}"
+  running_state="${running_state//[$'\r\n ']}"
 
   if [[ "${container_name}" != "/${CONTAINER_NAME}" ]]; then
     echo "error: unexpected ${location} probe result for '${CONTAINER_NAME}': ${probe_output}" >&2
@@ -111,7 +114,7 @@ probe_remote_container_state() {
   local probe_output=""
   if ! probe_output="$(
     ssh -o BatchMode=yes \
-      "$REMOTE_SSH" "docker container inspect --format \"${INSPECT_FORMAT}\" '${CONTAINER_NAME}'" 2>&1
+      "$REMOTE_SSH" "${SUDO_BIN} -n ${DOCKER_BIN} container inspect --format \"${INSPECT_FORMAT}\" '${CONTAINER_NAME}'" 2>&1
   )"; then
     if is_exact_missing_container_error "${probe_output}"; then
       printf 'not_running\n'
@@ -133,7 +136,7 @@ container_bash_local() {
 container_bash_remote() {
   local script="$1"
   local remote_cmd=""
-  remote_cmd="$(printf "docker exec %q bash -lc %q" "${CONTAINER_NAME}" "${script}")"
+  remote_cmd="$(printf "%q -n %q exec %q bash -lc %q" "${SUDO_BIN}" "${DOCKER_BIN}" "${CONTAINER_NAME}" "${script}")"
   ssh -o BatchMode=yes "${REMOTE_SSH}" "${remote_cmd}"
 }
 
