@@ -86,6 +86,37 @@ def test_customized_worker_env():
     ray.shutdown()
 
 
+def test_default_socket_ifname_family_env_passthrough():
+    ray.init(num_cpus=100)
+
+    resource_pool = RayResourcePool([2], use_gpu=False)
+    class_with_args = RayClassWithInitArgs(cls=TestActor)
+
+    original_env = {key: os.environ.get(key) for key in ("SOCKET_IFNAME", "GLOO_SOCKET_IFNAME", "HCCL_SOCKET_IFNAME")}
+    os.environ["SOCKET_IFNAME"] = "eth-test0"
+    os.environ["GLOO_SOCKET_IFNAME"] = "eth-test1"
+    os.environ["HCCL_SOCKET_IFNAME"] = "eth-test2"
+
+    try:
+        worker_group = RayWorkerGroup(
+            resource_pool=resource_pool,
+            ray_cls_with_init=class_with_args,
+            name_prefix="worker_group_socket_ifname",
+        )
+
+        assert worker_group.execute_all_sync("getenv", key="SOCKET_IFNAME") == ["eth-test0", "eth-test0"]
+        assert worker_group.execute_all_sync("getenv", key="GLOO_SOCKET_IFNAME") == ["eth-test1", "eth-test1"]
+        assert worker_group.execute_all_sync("getenv", key="HCCL_SOCKET_IFNAME") == ["eth-test2", "eth-test2"]
+    finally:
+        for key, value in original_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        ray.shutdown()
+
+
 if __name__ == "__main__":
     test_basics()
     test_customized_worker_env()
+    test_default_socket_ifname_family_env_passthrough()

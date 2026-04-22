@@ -34,6 +34,14 @@ from verl.utils.py_functional import temp_env_var
 __all__ = ["Worker"]
 
 logger = logging.getLogger(__file__)
+
+NETWORK_ENV_KEYS = (
+    "SOCKET_IFNAME",
+    "GLOO_SOCKET_IFNAME",
+    "HCCL_SOCKET_IFNAME",
+    "NCCL_SOCKET_IFNAME",
+    "TP_SOCKET_IFNAME",
+)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
@@ -631,6 +639,10 @@ class RayWorkerGroup(WorkerGroup):
             "MASTER_ADDR": self._master_addr,
             "MASTER_PORT": self._master_port,
         }
+        for key in NETWORK_ENV_KEYS:
+            value = os.environ.get(key)
+            if value:
+                env_vars[key] = value
         if worker_env is not None:
             logging.debug(f"Appending ray class env, origin: {env_vars}, customized env: {worker_env}")
             conflict_env_vars = set(env_vars.keys()) & set(worker_env.keys())
