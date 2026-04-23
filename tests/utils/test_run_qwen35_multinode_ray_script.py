@@ -224,6 +224,8 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
                 "PATH": f"{bin_dir}:/usr/bin:/bin",
                 "PYTHONNOUSERSITE": "1",
                 "LOG_DIR": str(tmp_path / "logs"),
+                "LOCAL_SOCKET_IFNAME": local_socket_ifname,
+                "REMOTE_SOCKET_IFNAME": remote_socket_ifname,
             }
             if socket_ifname is not None:
                 env["SOCKET_IFNAME"] = socket_ifname
@@ -324,7 +326,7 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
 
         ssh_lines = [line for line in lines if line.startswith("ssh: ")]
         bootstrap_lines = [line for line in lines if line.startswith("bootstrap: ")]
-        self.assertEqual(len(ssh_lines), 5)
+        self.assertEqual(len(ssh_lines), 4)
         self.assertEqual(len(bootstrap_lines), 1)
         self.assertIn("REMOTE_HOST=n1.example", bootstrap_lines[0])
         self.assertIn("REMOTE_USER=trainer", bootstrap_lines[0])
@@ -336,7 +338,7 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
 
         ssh_lines = [line for line in lines if line.startswith("ssh: ")]
         bootstrap_lines = [line for line in lines if line.startswith("bootstrap: ")]
-        self.assertEqual(len(ssh_lines), 5)
+        self.assertEqual(len(ssh_lines), 4)
         self.assertEqual(bootstrap_lines, [])
 
     def test_remote_probe_ignores_login_banner(self) -> None:
@@ -347,6 +349,7 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
         _, _, _, lines = self._run_launcher(
             remote_container_state="running",
             socket_ifname="enp189s0f0",
+            local_socket_ifname="enp189s0f0",
             remote_socket_ifname="enp61s0f0",
         )
         joined = "\n".join(lines)
@@ -423,7 +426,7 @@ class TestRunQwen35MultinodeRayScript(unittest.TestCase):
 
         ssh_lines = [line for line in lines if line.startswith("ssh: ")]
         bootstrap_lines = [line for line in lines if line.startswith("bootstrap: ")]
-        self.assertEqual(len(ssh_lines), 5)
+        self.assertEqual(len(ssh_lines), 4)
         self.assertEqual(len(bootstrap_lines), 1)
 
     def test_remote_probe_failure_exits_before_bootstrap_and_ray(self) -> None:

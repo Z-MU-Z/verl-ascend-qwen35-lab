@@ -183,10 +183,46 @@ PY
 detect_container_socket_ifname_local() {
   container_bash_local "
 set -euo pipefail
-iface=\"\$(awk '\$2 == \"00000000\" && \$1 != \"lo\" { print \$1; exit }' /proc/net/route)\"
-if [[ -z \"\${iface:-}\" ]]; then
-  iface=\"\$(ls /sys/class/net | grep -Ev '^(lo|docker.*|veth.*|virbr.*)$' | head -n 1)\"
-fi
+iface=\"\$(python3 - <<'PY'
+import os
+import re
+import socket
+import fcntl
+import struct
+
+EXCLUDE = re.compile(r'^(lo|docker.*|veth.*|virbr.*)$')
+
+def has_ipv4(ifname: str) -> bool:
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        fcntl.ioctl(s.fileno(), 0x8915, struct.pack('256s', ifname[:15].encode()))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+route_iface = ''
+with open('/proc/net/route', 'r', encoding='utf-8') as f:
+    next(f, None)
+    for line in f:
+        fields = line.split()
+        if len(fields) > 1 and fields[1] == '00000000' and fields[0] != 'lo':
+            route_iface = fields[0]
+            break
+
+if route_iface and not EXCLUDE.match(route_iface) and has_ipv4(route_iface):
+    print(route_iface)
+    raise SystemExit
+
+for ifname in sorted(os.listdir('/sys/class/net')):
+    if EXCLUDE.match(ifname):
+        continue
+    if has_ipv4(ifname):
+        print(ifname)
+        raise SystemExit
+PY
+)\"
 if [[ -z \"\${iface:-}\" ]]; then
   echo 'error: failed to determine local SOCKET_IFNAME inside container' >&2
   exit 1
@@ -198,10 +234,46 @@ printf '%s\n' \"\$iface\"
 detect_container_socket_ifname_remote() {
   container_bash_remote "
 set -euo pipefail
-iface=\"\$(awk '\$2 == \"00000000\" && \$1 != \"lo\" { print \$1; exit }' /proc/net/route)\"
-if [[ -z \"\${iface:-}\" ]]; then
-  iface=\"\$(ls /sys/class/net | grep -Ev '^(lo|docker.*|veth.*|virbr.*)$' | head -n 1)\"
-fi
+iface=\"\$(python3 - <<'PY'
+import os
+import re
+import socket
+import fcntl
+import struct
+
+EXCLUDE = re.compile(r'^(lo|docker.*|veth.*|virbr.*)$')
+
+def has_ipv4(ifname: str) -> bool:
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        fcntl.ioctl(s.fileno(), 0x8915, struct.pack('256s', ifname[:15].encode()))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+route_iface = ''
+with open('/proc/net/route', 'r', encoding='utf-8') as f:
+    next(f, None)
+    for line in f:
+        fields = line.split()
+        if len(fields) > 1 and fields[1] == '00000000' and fields[0] != 'lo':
+            route_iface = fields[0]
+            break
+
+if route_iface and not EXCLUDE.match(route_iface) and has_ipv4(route_iface):
+    print(route_iface)
+    raise SystemExit
+
+for ifname in sorted(os.listdir('/sys/class/net')):
+    if EXCLUDE.match(ifname):
+        continue
+    if has_ipv4(ifname):
+        print(ifname)
+        raise SystemExit
+PY
+)\"
 if [[ -z \"\${iface:-}\" ]]; then
   echo 'error: failed to determine remote SOCKET_IFNAME inside container' >&2
   exit 1
